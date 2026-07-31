@@ -1,0 +1,90 @@
+name: CI
+
+on:
+  push:
+    branches:
+      - main
+  pull_request:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: ci-${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  validate:
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Check out repository
+        uses: actions/checkout@v4
+
+      - name: Validate shell syntax
+        shell: bash
+        run: |
+          set -euo pipefail
+
+          while IFS= read -r -d '' file; do
+            case "$(head -n 1 "$file" 2>/dev/null || true)" in
+              *bash*) bash -n "$file" ;;
+              *) sh -n "$file" ;;
+            esac
+            printf 'syntax OK: %s\n' "$file"
+          done < <(
+            find . -type f \
+              \( -name '*.sh' -o -path './tools/darkstar-grub/05_darkstar_theme' \) \
+              -print0
+          )
+
+      - name: Validate Python syntax
+        shell: bash
+        run: |
+          set -euo pipefail
+          python3 - <<'PYTHON'
+          import ast
+          from pathlib import Path
+
+          for path in Path("tools").rglob("*.py"):
+              ast.parse(
+                  path.read_text(encoding="utf-8"),
+                  filename=str(path),
+              )
+              print(f"syntax OK: {path}")
+          PYTHON
+
+      - name: Reject private or generated artifacts
+        shell: bash
+        run: |
+          set -euo pipefail
+          failed=0
+
+          while IFS= read -r -d '' file; do
+            lower=${file,,}
+            case "$lower" in
+              *.efi|*.iso|*.img|*.rom|*.fd|*.cap|*.bin|*.hcd|*.bmp|*.pf2|*.ko|*.o|*.key|*.pem|*.der|*.pub|*.auth|*.esl|*.nvram|*.vars|*.p12|*.pfx|*.crt|*.cer|*.tar|*.tar.gz|*.tgz|*.zip|*.7z)
+                printf 'forbidden tracked artifact: %s\n' "$file" >&2
+                failed=1
+                ;;
+            esac
+          done < <(git ls-files -z)
+
+          if git grep -I -n -E -- \
+            '-----BEGIN (RSA |EC |OPENSSH |ENCRYPTED )?PRIVATE KEY-----' \
+            -- ':!.github/workflows/ci.yml'
+          then
+            printf 'private-key material found in tracked text\n' >&2
+            failed=1
+          fi
+
+          if [ "$failed" -ne 0 ]; then
+            exit 1
+          fi
+
+      - name: Check repository whitespace
+        shell: bash
+        run: |
+          set -euo pipefail
+          empty_tree=$(git hash-object -t tree /dev/null)
+          git diff --check "$empty_tree" HEAD

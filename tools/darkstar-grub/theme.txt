@@ -1,0 +1,55 @@
+desktop-color: "#000000"
+desktop-image: "background.png"
+desktop-image-scale-method: "stretch"
+
+message-font: "Darkstar Status Regular 22"
+message-color: "#7af6ff"
+message-bg-color: "#000000"
+
++ label {
+    left = 0
+    top = 13%
+    width = 100%
+    height = 64
+    text = "D A R K S T A R"
+    align = "center"
+    font = "Darkstar Title Bold 52"
+    color = "#ff58ff"
+}
+
++ label {
+    left = 0
+    top = 28%
+    width = 100%
+    height = 32
+    text = "SECURE BOOT  /  DEBIAN 13"
+    align = "center"
+    font = "Darkstar Status Regular 22"
+    color = "#7af6ff"
+}
+
++ boot_menu {
+    left = 40%
+    top = 42%
+    width = 42%
+    height = 30%
+    item_font = "Darkstar Menu Regular 30"
+    item_color = "#8cefff"
+    selected_item_font = "Darkstar Menu Bold 30"
+    selected_item_color = "#ff58ff"
+    item_height = 46
+    item_padding = 10
+    item_spacing = 6
+}
+
++ label {
+    id = "__timeout__"
+    left = 0
+    top = 84%
+    width = 100%
+    height = 32
+    text = "IGNITION IN %d"
+    align = "center"
+    font = "Darkstar Status Regular 22"
+    color = "#7af6ff"
+}

@@ -1,0 +1,57 @@
+<svg xmlns="http://www.w3.org/2000/svg"
+     width="1024"
+     height="1024"
+     viewBox="0 0 1024 1024"
+     role="img"
+     aria-label="Darkstar boot logo">
+  <defs>
+    <radialGradient id="bgGlow" cx="50%" cy="42%" r="60%">
+      <stop offset="0%" stop-color="#1d3557"/>
+      <stop offset="45%" stop-color="#111827"/>
+      <stop offset="100%" stop-color="#06080d"/>
+    </radialGradient>
+    <radialGradient id="starCore" cx="50%" cy="50%" r="50%">
+      <stop offset="0%" stop-color="#ffffff"/>
+      <stop offset="20%" stop-color="#dff7ff"/>
+      <stop offset="55%" stop-color="#74d8ff"/>
+      <stop offset="100%" stop-color="#1e8fff"/>
+    </radialGradient>
+    <linearGradient id="ringGrad" x1="0%" y1="0%" x2="100%" y2="100%">
+      <stop offset="0%" stop-color="#97e6ff"/>
+      <stop offset="50%" stop-color="#52bfff"/>
+      <stop offset="100%" stop-color="#1e78d7"/>
+    </linearGradient>
+    <filter id="softGlow" x="-60%" y="-60%" width="220%" height="220%">
+      <feGaussianBlur stdDeviation="12" result="blur"/>
+      <feMerge><feMergeNode in="blur"/><feMergeNode in="SourceGraphic"/></feMerge>
+    </filter>
+    <filter id="bigGlow" x="-100%" y="-100%" width="300%" height="300%">
+      <feGaussianBlur stdDeviation="28" result="blur"/>
+      <feMerge><feMergeNode in="blur"/><feMergeNode in="SourceGraphic"/></feMerge>
+    </filter>
+  </defs>
+  <rect width="1024" height="1024" fill="url(#bgGlow)"/>
+  <circle cx="512" cy="430" r="220" fill="#56c7ff" opacity="0.10" filter="url(#bigGlow)"/>
+  <circle cx="512" cy="430" r="140" fill="#b8eeff" opacity="0.08" filter="url(#bigGlow)"/>
+  <g fill="#c7f1ff" opacity="0.55">
+    <circle cx="210" cy="220" r="3"/><circle cx="290" cy="680" r="2.5"/>
+    <circle cx="805" cy="290" r="2.5"/><circle cx="740" cy="760" r="3"/>
+    <circle cx="620" cy="180" r="2"/><circle cx="140" cy="540" r="2"/>
+  </g>
+  <g transform="translate(512 420)">
+    <circle cx="0" cy="0" r="148" fill="none" stroke="url(#ringGrad)" stroke-width="8"
+            stroke-linecap="round" stroke-dasharray="180 42 36 56 84 530" opacity="0.88"
+            filter="url(#softGlow)"/>
+    <circle cx="0" cy="-148" r="10" fill="#ecfbff" filter="url(#softGlow)"/>
+    <circle cx="113" cy="-95" r="6" fill="#7fdbff" filter="url(#softGlow)"/>
+    <path d="M0,-162 L24,-66 L120,-42 L24,-18 L0,78 L-24,-18 L-120,-42 L-24,-66 Z"
+          fill="url(#starCore)" stroke="#dcf8ff" stroke-width="4" filter="url(#softGlow)"/>
+    <circle cx="0" cy="-42" r="16" fill="#ffffff" opacity="0.98"/>
+  </g>
+  <g text-anchor="middle">
+    <text x="512" y="730" font-family="DejaVu Sans, Arial, sans-serif" font-size="72"
+          font-weight="300" letter-spacing="18" fill="#e2f2ff" opacity="0.98">DARKSTAR</text>
+    <text x="512" y="785" font-family="DejaVu Sans, Arial, sans-serif" font-size="22"
+          font-weight="400" letter-spacing="9" fill="#7fd3ff" opacity="0.95">A720 • CUSTOM SYSTEM</text>
+  </g>
+</svg>

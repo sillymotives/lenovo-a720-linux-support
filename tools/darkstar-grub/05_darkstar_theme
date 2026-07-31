@@ -1,0 +1,11 @@
+#!/bin/sh
+# SPDX-License-Identifier: GPL-2.0-only
+
+cat <<'GRUB'
+if [ x"${darkstar}" = x1 ]; then
+    set timeout_style=menu
+    set timeout=2
+    set theme=(memdisk)/boot/grub/themes/darkstar/theme.txt
+    export theme
+fi
+GRUB
