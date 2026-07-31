@@ -15,7 +15,16 @@ UNIT='/etc/systemd/system/darkstar-shutdown-jingle.service'
     false
 }
 
-for COMMAND in python3 aplay amixer update-initramfs systemctl install; do
+for COMMAND in \
+    python3 \
+    aplay \
+    amixer \
+    update-initramfs \
+    lsinitramfs \
+    systemctl \
+    systemd-analyze \
+    install
+do
     command -v "$COMMAND" >/dev/null 2>&1 || {
         echo "Missing required command: $COMMAND" >&2
         false
