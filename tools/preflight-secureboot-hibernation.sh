@@ -15,6 +15,7 @@ EXPECTED_ESP='/dev/sda1'
 EXPECTED_ROOT='/dev/sda2'
 EXPECTED_OLD_SWAP='/dev/sda3'
 SHRINK_BYTES=$((12 * 1024 * 1024 * 1024))
+MINIMUM_FREE_AFTER_SHRINK=$((8 * 1024 * 1024 * 1024))
 
 RECOVERY_ISO=${1:-${RECOVERY_ISO:-}}
 CHECKSUM_FILE=${2:-${CHECKSUM_FILE:-}}
@@ -166,45 +167,32 @@ else
     warn 'parted is unavailable'
 fi
 
-section 'Offline-shrink feasibility estimate'
+section 'Offline-shrink capacity gate'
 ROOT_BYTES=$(blockdev --getsize64 "$EXPECTED_ROOT" 2>/dev/null || printf '0')
 TARGET_BYTES=$((ROOT_BYTES - SHRINK_BYTES))
+AVAILABLE_BYTES=$(df -B1 --output=avail / | awk 'NR == 2 { print $1 }')
+REQUIRED_AVAILABLE_BYTES=$((SHRINK_BYTES + MINIMUM_FREE_AFTER_SHRINK))
 printf 'current root partition bytes: %s\n' "$ROOT_BYTES"
 printf 'planned shrink bytes:        %s\n' "$SHRINK_BYTES"
 printf 'planned root target bytes:   %s\n' "$TARGET_BYTES"
+printf 'currently available bytes:   %s\n' "$AVAILABLE_BYTES"
+printf 'required available bytes:    %s\n' "$REQUIRED_AVAILABLE_BYTES"
 df -B1 /
 
 if [ "$ROOT_BYTES" -le "$SHRINK_BYTES" ]; then
     fail 'root partition is too small for the planned shrink'
-elif have resize2fs; then
-    RESIZE_OUTPUT=$(resize2fs -P "$EXPECTED_ROOT" 2>&1)
-    RESIZE_RC=$?
-    printf '%s\n' "$RESIZE_OUTPUT"
-
-    if [ "$RESIZE_RC" -ne 0 ]; then
-        warn 'resize2fs could not estimate the minimum size while root is mounted'
-    else
-        MIN_BLOCKS=$(printf '%s\n' "$RESIZE_OUTPUT" |
-            awk '/minimum size/ { print $NF; exit }')
-        BLOCK_SIZE=$(stat -fc '%S' /)
-
-        if [ -n "$MIN_BLOCKS" ] && [ "$BLOCK_SIZE" -gt 0 ]; then
-            MIN_BYTES=$((MIN_BLOCKS * BLOCK_SIZE))
-            MARGIN_BYTES=$((TARGET_BYTES - MIN_BYTES))
-            printf 'estimated minimum bytes:     %s\n' "$MIN_BYTES"
-            printf 'estimated safety margin:     %s\n' "$MARGIN_BYTES"
-
-            if [ "$MARGIN_BYTES" -gt $((8 * 1024 * 1024 * 1024)) ]; then
-                pass 'estimated filesystem minimum leaves more than 8 GiB margin'
-            else
-                fail 'estimated filesystem minimum leaves insufficient margin'
-            fi
-        else
-            warn 'could not parse the resize2fs minimum-size estimate'
-        fi
-    fi
+elif [ -z "$AVAILABLE_BYTES" ]; then
+    fail 'could not determine available space on the root filesystem'
+elif [ "$AVAILABLE_BYTES" -ge "$REQUIRED_AVAILABLE_BYTES" ]; then
+    pass 'root has the planned 12 GiB shrink plus at least 8 GiB free margin'
 else
-    warn 'resize2fs is unavailable'
+    fail 'root lacks the conservative free-space margin for the planned shrink'
+fi
+
+if have resize2fs; then
+    printf 'resize2fs is present; the authoritative minimum-size estimate will be run offline after e2fsck.\n'
+else
+    warn 'resize2fs is unavailable for the later offline stage'
 fi
 
 section 'Current swap and hibernation state'
