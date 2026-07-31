@@ -11,6 +11,8 @@ The project reproduces the WMI handshake used by Lenovo's original Windows OSD u
 - Persistent startup: working through DKMS and systemd
 - PulseAudio: supported
 - PipeWire/WirePlumber: supported
+- Broadcom BCM20702A1 Bluetooth firmware: documented and verified
+- Nouveau/Mesa accelerated graphics: documented and verified
 - Brightness buttons: protocol identified, not implemented yet
 
 ## How it works
@@ -73,6 +75,11 @@ A720 bridge ready: backend=pactl, initial volume=50%
 Lenovo bezel requested 56% -> applied
 ```
 
+For a broader hardware check, run:
+
+```bash
+sh tools/verify-a720-hardware.sh
+```
 
 ## Retaining a fallback kernel
 
@@ -104,6 +111,16 @@ sudo ./extras/debian/fix-alsa-restore-rule.sh
 ```
 
 The helper refuses unknown rule layouts, copies the vendor rule into `/etc/udev/rules.d`, and corrects only the missing label. The `/etc` override survives package updates. It is intentionally not run by the main installer because it changes system-wide audio restoration behaviour.
+
+## Additional platform support
+
+- [`docs/bluetooth.md`](docs/bluetooth.md): BCM20702A1 firmware identity, guarded installation, OBEX integration, and BlueZ directory permissions.
+- [`docs/graphics.md`](docs/graphics.md): early Nouveau loading, Mesa acceleration, video-decoder interfaces, and known firmware messages.
+- [`docs/boot-warning-catalogue.md`](docs/boot-warning-catalogue.md): classification of fixed issues, expected diagnostics, firmware quirks, security notices, and third-party warnings.
+- [`tools/capture-boot-audit.sh`](tools/capture-boot-audit.sh): sanitized current-boot warning capture.
+- [`tools/verify-a720-hardware.sh`](tools/verify-a720-hardware.sh): checks the known Bluetooth, graphics, video, and systemd state.
+
+The Broadcom firmware blob is not redistributed by this project. The helper accepts a lawfully obtained user-supplied file and validates its exact size and SHA-256 digest before installation.
 
 ## Uninstall
 
