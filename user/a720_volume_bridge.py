@@ -1,77 +1,158 @@
 #!/usr/bin/env python3
 """Apply Lenovo A720 absolute-volume requests to PulseAudio or PipeWire."""
+
 from __future__ import annotations
-import re, shutil, subprocess, sys, time
+
+import re
+import shutil
+import subprocess
+import sys
+import time
+from collections.abc import Sequence
 from pathlib import Path
 
-BASE = Path('/sys/module/a720_wmi_handshake/parameters')
-SYNC = BASE / 'sync_volume'
-REQUESTED = BASE / 'requested_volume'
-SEQ = BASE / 'request_seq'
+BASE = Path("/sys/module/a720_wmi_handshake/parameters")
+SYNC = BASE / "sync_volume"
+REQUEST = BASE / "request"
+LEGACY_REQUESTED = BASE / "requested_volume"
+LEGACY_SEQUENCE = BASE / "request_seq"
+COMMAND_TIMEOUT = 5.0
 
-def run(cmd, capture=False, check=True):
-    return subprocess.run(cmd, text=True, capture_output=capture, check=check)
 
-def backend():
-    if shutil.which('pactl') and run(['pactl','info'], capture=True, check=False).returncode == 0:
-        return 'pactl'
-    if shutil.which('wpctl') and run(['wpctl','status'], capture=True, check=False).returncode == 0:
-        return 'wpctl'
-    raise RuntimeError('No working pactl or wpctl audio connection')
+def run(
+    command: Sequence[str],
+    *,
+    capture: bool = False,
+    check: bool = True,
+) -> subprocess.CompletedProcess[str]:
+    return subprocess.run(
+        command,
+        text=True,
+        capture_output=capture,
+        check=check,
+        timeout=COMMAND_TIMEOUT,
+    )
 
-def get_volume(b):
-    if b == 'pactl':
-        out=run(['pactl','get-sink-volume','@DEFAULT_SINK@'],capture=True).stdout
-        m=re.search(r'/\s*(\d+)%',out)
+
+def backend() -> str:
+    if shutil.which("pactl"):
+        result = run(["pactl", "info"], capture=True, check=False)
+        if result.returncode == 0:
+            return "pactl"
+
+    if shutil.which("wpctl"):
+        result = run(["wpctl", "status"], capture=True, check=False)
+        if result.returncode == 0:
+            return "wpctl"
+
+    raise RuntimeError("No working pactl or wpctl audio connection")
+
+
+def get_volume(selected_backend: str) -> int:
+    if selected_backend == "pactl":
+        output = run(
+            ["pactl", "get-sink-volume", "@DEFAULT_SINK@"],
+            capture=True,
+        ).stdout
+        percentages = [int(value) for value in re.findall(r"/\s*(\d+)%", output)]
+        if not percentages:
+            raise RuntimeError(f"Could not parse pactl volume: {output.strip()!r}")
+        volume = round(sum(percentages) / len(percentages))
     else:
-        out=run(['wpctl','get-volume','@DEFAULT_AUDIO_SINK@'],capture=True).stdout
-        m=re.search(r'Volume:\s*([0-9]+(?:\.[0-9]+)?)',out)
-        if m: return max(0,min(100,round(float(m.group(1))*100)))
-    if not m: raise RuntimeError(f'Could not parse volume output: {out.strip()!r}')
-    return max(0,min(100,int(m.group(1))))
+        output = run(
+            ["wpctl", "get-volume", "@DEFAULT_AUDIO_SINK@"],
+            capture=True,
+        ).stdout
+        match = re.search(r"Volume:\s*([0-9]+(?:\.[0-9]+)?)", output)
+        if not match:
+            raise RuntimeError(f"Could not parse wpctl volume: {output.strip()!r}")
+        volume = round(float(match.group(1)) * 100)
 
-def set_volume(b,v):
-    v=max(0,min(100,v))
-    if b == 'pactl': run(['pactl','set-sink-volume','@DEFAULT_SINK@',f'{v}%'])
-    else: run(['wpctl','set-volume','@DEFAULT_AUDIO_SINK@',f'{v}%'])
+    return max(0, min(100, volume))
 
-def write_sync(v):
-    SYNC.write_text(f'{max(0,min(100,v))}\n')
 
-def wait_ready(timeout=45):
-    end=time.monotonic()+timeout
-    while time.monotonic()<end:
-        if all(p.exists() for p in (SYNC,REQUESTED,SEQ)):
+def set_volume(selected_backend: str, volume: int) -> None:
+    volume = max(0, min(100, volume))
+    if selected_backend == "pactl":
+        run(["pactl", "set-sink-volume", "@DEFAULT_SINK@", f"{volume}%"])
+    else:
+        run(["wpctl", "set-volume", "@DEFAULT_AUDIO_SINK@", f"{volume}%"])
+
+
+def write_sync(volume: int) -> None:
+    volume = max(0, min(100, volume))
+    SYNC.write_text(f"{volume}\n", encoding="ascii")
+
+
+def read_integer(path: Path) -> int:
+    return int(path.read_text(encoding="ascii").strip())
+
+
+def read_request() -> tuple[int, int]:
+    if REQUEST.exists():
+        fields = REQUEST.read_text(encoding="ascii").split()
+        if len(fields) != 2:
+            raise RuntimeError(f"Malformed kernel request snapshot: {fields!r}")
+        return int(fields[0]), int(fields[1])
+
+    # Version 1.0 exported the fields separately. Read sequence around the
+    # value so a rolling upgrade cannot consume a mismatched pair.
+    for _ in range(5):
+        sequence_before = read_integer(LEGACY_SEQUENCE)
+        requested = read_integer(LEGACY_REQUESTED)
+        sequence_after = read_integer(LEGACY_SEQUENCE)
+        if sequence_before == sequence_after:
+            return sequence_after, requested
+
+    raise RuntimeError("Could not obtain a stable legacy request snapshot")
+
+
+def wait_ready(timeout: float = 45.0) -> None:
+    deadline = time.monotonic() + timeout
+    while time.monotonic() < deadline:
+        modern_ready = REQUEST.exists()
+        legacy_ready = LEGACY_REQUESTED.exists() and LEGACY_SEQUENCE.exists()
+        if SYNC.exists() and (modern_ready or legacy_ready):
             return
-        time.sleep(.5)
-    raise RuntimeError('Kernel module sysfs controls did not appear')
+        time.sleep(0.5)
 
-def main():
+    raise RuntimeError("Kernel module sysfs controls did not appear")
+
+
+def main() -> None:
     wait_ready()
-    b=backend()
-    current=get_volume(b)
+    selected_backend = backend()
+    current = get_volume(selected_backend)
     write_sync(current)
-    print(f'A720 bridge ready: backend={b}, initial volume={current}%', flush=True)
-    last_seq=int(SEQ.read_text().strip())
-    last_refresh=time.monotonic()
-    while True:
-        seq=int(SEQ.read_text().strip())
-        if seq != last_seq:
-            requested=int(REQUESTED.read_text().strip())
-            if 0 <= requested <= 100:
-                set_volume(b,requested)
-                write_sync(requested)
-                print(f'Lenovo bezel requested {requested}% -> applied', flush=True)
-            last_seq=seq
-            last_refresh=time.monotonic()
-        elif time.monotonic()-last_refresh >= 2.0:
-            write_sync(get_volume(b))
-            last_refresh=time.monotonic()
-        time.sleep(.08)
+    print(
+        f"A720 bridge ready: backend={selected_backend}, initial volume={current}%",
+        flush=True,
+    )
 
-if __name__ == '__main__':
-    try: main()
-    except KeyboardInterrupt: pass
-    except Exception as e:
-        print(f'A720 bridge error: {e}', file=sys.stderr, flush=True)
-        raise SystemExit(1)
+    last_sequence, _ = read_request()
+    last_refresh = time.monotonic()
+
+    while True:
+        sequence, requested = read_request()
+        if sequence != last_sequence:
+            if 0 <= requested <= 100:
+                set_volume(selected_backend, requested)
+                write_sync(requested)
+                print(f"Lenovo bezel requested {requested}% -> applied", flush=True)
+            last_sequence = sequence
+            last_refresh = time.monotonic()
+        elif time.monotonic() - last_refresh >= 2.0:
+            write_sync(get_volume(selected_backend))
+            last_refresh = time.monotonic()
+
+        time.sleep(0.08)
+
+
+if __name__ == "__main__":
+    try:
+        main()
+    except KeyboardInterrupt:
+        pass
+    except Exception as error:
+        print(f"A720 bridge error: {error}", file=sys.stderr, flush=True)
+        raise SystemExit(1) from error
