@@ -173,7 +173,10 @@ checks:
 - complete ReaR archive listing plus the archived prettyboot hash.
 
 The script does not mount, unmount, repartition, resize, sign, copy to the ESP,
-or alter EFI variables.
+or alter EFI variables. Repository CI run 37 passed after the tool and this
+handoff were added; that validates repository policy, shell syntax, whitespace,
+and forbidden-artifact guards. Physical output from the reference machine is
+still required before Gate 1A can pass.
 
 ## Execution gates
 
