@@ -1,0 +1,11 @@
+[Unit]
+Description=Lenovo IdeaCentre A720 bezel volume bridge
+
+[Service]
+Type=simple
+ExecStart=%h/.local/bin/a720_volume_bridge.py
+Restart=on-failure
+RestartSec=3
+
+[Install]
+WantedBy=default.target
