@@ -17,6 +17,7 @@ REQUEST = BASE / "request"
 LEGACY_REQUESTED = BASE / "requested_volume"
 LEGACY_SEQUENCE = BASE / "request_seq"
 COMMAND_TIMEOUT = 5.0
+AUDIO_READY_TIMEOUT = 45.0
 
 
 def run(
@@ -32,20 +33,6 @@ def run(
         check=check,
         timeout=COMMAND_TIMEOUT,
     )
-
-
-def backend() -> str:
-    if shutil.which("pactl"):
-        result = run(["pactl", "info"], capture=True, check=False)
-        if result.returncode == 0:
-            return "pactl"
-
-    if shutil.which("wpctl"):
-        result = run(["wpctl", "status"], capture=True, check=False)
-        if result.returncode == 0:
-            return "wpctl"
-
-    raise RuntimeError("No working pactl or wpctl audio connection")
 
 
 def get_volume(selected_backend: str) -> int:
@@ -69,6 +56,37 @@ def get_volume(selected_backend: str) -> int:
         volume = round(float(match.group(1)) * 100)
 
     return max(0, min(100, volume))
+
+
+def probe_backend() -> tuple[str, int]:
+    failures: list[str] = []
+
+    for selected_backend in ("pactl", "wpctl"):
+        if not shutil.which(selected_backend):
+            continue
+
+        try:
+            return selected_backend, get_volume(selected_backend)
+        except (OSError, RuntimeError, subprocess.SubprocessError) as error:
+            failures.append(f"{selected_backend}: {error}")
+
+    if failures:
+        raise RuntimeError("; ".join(failures))
+    raise RuntimeError("Neither pactl nor wpctl is installed")
+
+
+def wait_audio_ready(timeout: float = AUDIO_READY_TIMEOUT) -> tuple[str, int]:
+    deadline = time.monotonic() + timeout
+    last_error = "no backend probe attempted"
+
+    while time.monotonic() < deadline:
+        try:
+            return probe_backend()
+        except RuntimeError as error:
+            last_error = str(error)
+        time.sleep(0.5)
+
+    raise RuntimeError(f"Audio backend did not become ready: {last_error}")
 
 
 def set_volume(selected_backend: str, volume: int) -> None:
@@ -121,8 +139,7 @@ def wait_ready(timeout: float = 45.0) -> None:
 
 def main() -> None:
     wait_ready()
-    selected_backend = backend()
-    current = get_volume(selected_backend)
+    selected_backend, current = wait_audio_ready()
     write_sync(current)
     print(
         f"A720 bridge ready: backend={selected_backend}, initial volume={current}%",
