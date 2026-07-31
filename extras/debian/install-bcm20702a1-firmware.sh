@@ -29,8 +29,14 @@ command -v sha256sum >/dev/null 2>&1 || {
   exit 1
 }
 
-actual_size=$(wc -c < "$SOURCE" | tr -d '[:space:]')
-actual_sha256=$(sha256sum "$SOURCE" | awk '{ print $1 }')
+# Copy first, then validate and install the same root-owned temporary inode.
+# This closes the validation-to-install race for a user-writable source path.
+tmp=$(mktemp)
+trap 'rm -f "$tmp"' EXIT HUP INT TERM
+install -m 0600 "$SOURCE" "$tmp"
+
+actual_size=$(wc -c < "$tmp" | tr -d '[:space:]')
+actual_sha256=$(sha256sum "$tmp" | awk '{ print $1 }')
 
 [ "$actual_size" = "$EXPECTED_SIZE" ] || {
   echo "Unexpected firmware size: $actual_size bytes" >&2
@@ -44,7 +50,17 @@ actual_sha256=$(sha256sum "$SOURCE" | awk '{ print $1 }')
   exit 1
 }
 
+if [ -L "$DEST" ]; then
+  echo "Refusing symlink destination: $DEST" >&2
+  exit 1
+fi
+
 if [ -e "$DEST" ]; then
+  [ -f "$DEST" ] || {
+    echo "Existing destination is not a regular file: $DEST" >&2
+    exit 1
+  }
+
   installed_size=$(wc -c < "$DEST" | tr -d '[:space:]')
   installed_sha256=$(sha256sum "$DEST" | awk '{ print $1 }')
 
@@ -59,9 +75,9 @@ if [ -e "$DEST" ]; then
   exit 1
 fi
 
-install -D -m 0644 "$SOURCE" "$DEST"
+install -D -m 0644 "$tmp" "$DEST"
 
 echo "Installed validated Broadcom firmware: $DEST"
 echo "This repository does not distribute the firmware blob."
 echo "By using this helper, you confirm that you obtained the source lawfully."
-echo "Reboot, or safely re-enumerate the Bluetooth controller, then verify the kernel log."
+echo "Reboot, or safely re-enumerate the controller, then verify the kernel log."
