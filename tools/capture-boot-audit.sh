@@ -1,7 +1,11 @@
 #!/bin/sh
 set -eu
 
+umask 077
 OUTPUT=${1:-a720-boot-audit.txt}
+incomplete=0
+tmp=$(mktemp)
+trap 'rm -f "$tmp"' EXIT HUP INT TERM
 
 journal_command() {
   if [ "$(id -u)" -eq 0 ]; then
@@ -15,21 +19,35 @@ journal_command() {
 
 {
   echo '=== Failed system units ==='
-  systemctl --failed --no-pager || true
+  if ! systemctl --failed --no-pager; then
+    echo 'ERROR: could not query system units' >&2
+    incomplete=1
+  fi
 
   echo
   echo '=== Failed user units ==='
-  systemctl --user --failed --no-pager || true
+  if ! systemctl --user --failed --no-pager; then
+    echo 'ERROR: could not query user units' >&2
+    incomplete=1
+  fi
 
   echo
   echo '=== Current boot warnings and errors ==='
-  journal_command -b \
+  if ! journal_command -b \
     --no-pager \
     --no-hostname \
     -o short-monotonic \
-    -p warning..alert || true
-} | tee "$OUTPUT"
+    -p warning..alert; then
+    echo 'ERROR: could not read the complete current-boot journal' >&2
+    incomplete=1
+  fi
+} > "$tmp" 2>&1
+
+tee "$OUTPUT" < "$tmp"
 
 echo
 echo "Saved boot audit to: $OUTPUT"
-echo "Review it before publishing; journals can contain usernames, device identifiers, network details, and third-party application data."
+echo "This is not anonymized. Review it before publishing."
+echo "Journals can contain usernames, addresses, device IDs, and application data."
+
+[ "$incomplete" -eq 0 ]
