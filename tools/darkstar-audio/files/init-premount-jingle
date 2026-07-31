@@ -117,16 +117,17 @@ set_control()
     shift
     : > "$MIXER_LOG"
 
-    if /usr/bin/amixer \
+    /usr/bin/amixer \
         -q \
         -D darkstar \
         sset "$CONTROL" "$@" \
         2>"$MIXER_LOG"
-    then
+    STATUS=$?
+
+    if [ "$STATUS" -eq 0 ]; then
         return 0
     fi
 
-    STATUS=$?
     log_message "mixer control failed: $CONTROL, status $STATUS"
     log_file 'amixer: ' "$MIXER_LOG"
     return 0
@@ -142,20 +143,21 @@ do
     log_message "playback attempt $PLAY_ATTEMPT starting"
     : > "$PLAY_LOG"
 
-    if /usr/bin/timeout \
+    /usr/bin/timeout \
         -s TERM \
         2 \
         /usr/bin/aplay \
         -D darkstar \
         /usr/share/darkstar/darkstar_boot.wav \
         >"$PLAY_LOG" 2>&1
-    then
+    STATUS=$?
+
+    if [ "$STATUS" -eq 0 ]; then
         log_message 'playback complete'
         rm -f -- "$ALSA_CONFIG" "$MIXER_LOG" "$PLAY_LOG"
         exit 0
     fi
 
-    STATUS=$?
     log_message \
         "playback attempt $PLAY_ATTEMPT failed with status $STATUS"
     log_file 'aplay: ' "$PLAY_LOG"
