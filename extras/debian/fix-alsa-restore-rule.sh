@@ -14,29 +14,44 @@ override=${A720_ALSA_OVERRIDE_RULE:-/etc/udev/rules.d/90-alsa-restore.rules}
   exit 1
 }
 
-if grep -q 'LABEL="alsa_restore_std"' "$vendor"; then
+source_snapshot=$(mktemp)
+corrected=$(mktemp)
+trap 'rm -f "$source_snapshot" "$corrected"' EXIT HUP INT TERM
+install -m 0600 "$vendor" "$source_snapshot"
+
+if [ -L "$override" ]; then
+  echo "Refusing symlink override destination: $override" >&2
+  exit 1
+fi
+
+if grep -qx 'LABEL="alsa_restore_std"' "$source_snapshot"; then
   if [ -f "$override" ]; then
-    echo "Vendor rule is fixed, but $override still takes precedence."
-    echo "Review it and remove it when the vendor fix is trusted."
-  else
-    echo "Vendor rule already contains LABEL=\"alsa_restore_std\"; no override needed."
+    if cmp -s "$source_snapshot" "$override"; then
+      echo "Vendor rule is fixed and the local override is now redundant."
+      echo "Review and remove: $override"
+      exit 0
+    fi
+
+    echo "Vendor rule is fixed, but a different local override still takes precedence:" >&2
+    echo "$override" >&2
+    echo "Review the override before treating the vendor repair as active." >&2
+    exit 1
   fi
+
+  echo "Vendor rule already contains LABEL=\"alsa_restore_std\"; no override needed."
   exit 0
 fi
 
-if ! grep -q 'GOTO="alsa_restore_std"' "$vendor"; then
+if ! grep -qx 'GOTO="alsa_restore_std"' "$source_snapshot"; then
   echo "Vendor rule does not match the known Debian label bug; refusing to alter it." >&2
   exit 1
 fi
 
-label_count=$(grep -c '^LABEL="alsa_restore_go"$' "$vendor" || true)
+label_count=$(grep -c '^LABEL="alsa_restore_go"$' "$source_snapshot" || true)
 [ "$label_count" -eq 2 ] || {
   echo "Expected exactly two alsa_restore_go labels; refusing unknown layout." >&2
   exit 1
 }
-
-tmp=$(mktemp)
-trap 'rm -f "$tmp"' EXIT HUP INT TERM
 
 awk '
   /^LABEL="alsa_restore_go"$/ {
@@ -47,15 +62,15 @@ awk '
     }
   }
   { print }
-' "$vendor" > "$tmp"
+' "$source_snapshot" > "$corrected"
 
-grep -q 'LABEL="alsa_restore_std"' "$tmp" || {
+grep -qx 'LABEL="alsa_restore_std"' "$corrected" || {
   echo "Failed to construct corrected rule." >&2
   exit 1
 }
 
 if [ -e "$override" ]; then
-  if cmp -s "$tmp" "$override"; then
+  if cmp -s "$corrected" "$override"; then
     echo "Corrected ALSA rule override is already installed: $override"
     exit 0
   fi
@@ -65,6 +80,6 @@ if [ -e "$override" ]; then
   exit 1
 fi
 
-install -D -m 0644 "$tmp" "$override"
+install -D -m 0644 "$corrected" "$override"
 echo "Installed update-safe ALSA rule override: $override"
 echo "It will take effect for newly added sound devices and after the next boot."
