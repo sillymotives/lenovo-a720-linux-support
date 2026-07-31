@@ -1,8 +1,8 @@
 # Lenovo IdeaCentre A720 reverse-engineered Linux support
 
-This repository provides reverse-engineered Linux platform support for the Lenovo IdeaCentre A720 all-in-one PC.
+This repository provides reverse-engineered Linux platform support for the Lenovo IdeaCentre A720 all-in-one PC. On a stock modern Linux installation, several A720-specific features are absent or fragile: the capacitive bezel controls cannot be handled as ordinary keys because they use a proprietary, stateful WMI protocol; the Broadcom BCM20702A1 Bluetooth adapter needs the correct firmware and integration; accelerated Nouveau/Mesa graphics and video decoding require machine-specific setup; and out-of-tree hardware support can disappear after kernel upgrades unless DKMS and initramfs are managed across retained kernels. This project turns those discoveries into guarded drivers, services, installers, diagnostics, and recovery documentation.
 
-It collects the drivers, service integration, diagnostics, boot tooling, recovery notes, firmware research, and desktop fixes needed to make A720-specific hardware behave predictably on modern Linux. The capacitive volume controls were the starting point, not the limit: the project now covers the A720 WMI protocol and absolute-volume bridge, DKMS lifecycle, Broadcom Bluetooth firmware, Nouveau/Mesa graphics, Debian audio quirks, Secure Boot and standalone GRUB research, ReaR recovery media, read-only firmware acquisition, offline splash-image construction, and privacy-conscious system auditing.
+The capacitive volume controls were the starting point, not the limit. The project now also covers Debian audio quirks, hardware verification, sanitized boot diagnostics, Secure Boot and standalone GRUB research, ReaR recovery media, read-only firmware acquisition, offline splash-image construction, desktop fixes, and privacy-conscious system auditing.
 
 The normal installer handles the core platform support. Bootloader, recovery, and firmware work is intentionally kept separate, documented, and conservative.
 
