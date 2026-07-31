@@ -143,7 +143,7 @@ This is not evidence of duplicate daemon startup. It remains an application-leve
 Capture a sanitized current-boot report with:
 
 ```bash
-./tools/capture-boot-audit.sh
+sh tools/capture-boot-audit.sh
 ```
 
 Review any report before publishing it. Journals can contain device identifiers, network information, usernames, and third-party application details.
