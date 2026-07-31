@@ -180,13 +180,23 @@ or alter EFI variables.
 Do not proceed to the next gate until the current one has evidence attached to
 the private maintenance log.
 
-### Gate 1: recovery and preflight readiness
+### Gate 1A: local read-only preflight
 
-- run the integrated read-only preflight with all three recovery paths;
+- fetch the preflight script from the draft branch without switching the local
+  working tree;
+- identify the recovery ISO, checksum manifest, and ReaR archive paths;
+- verify the protected backup volume by identity before any read-only mount;
+- run the integrated preflight with all three paths;
 - obtain zero mandatory failures;
+- preserve the generated report under `/root`.
+
+### Gate 1B: physical recovery boot
+
 - boot the recovery medium without starting a restore;
 - confirm keyboard, display, internal disk, and protected backup device are
   visible in the rescue environment;
+- do not mount the internal root filesystem read-write;
+- do not start `rear recover`;
 - return to Debian without writing either disk.
 
 ### Gate 2: offline storage repair
