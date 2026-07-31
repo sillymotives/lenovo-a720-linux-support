@@ -1,21 +1,34 @@
-# Lenovo IdeaCentre A720 Linux support
+# Lenovo IdeaCentre A720 reverse-engineered Linux support
 
-Reverse-engineered Linux hardware support, beginning with the capacitive volume controls on the Lenovo IdeaCentre A720 all-in-one PC.
+This repository provides reverse-engineered Linux platform support for the Lenovo IdeaCentre A720 all-in-one PC.
 
-The project reproduces the WMI handshake used by Lenovo's original Windows OSD utility and bridges the controller's absolute volume requests to PulseAudio or PipeWire.
+It collects the drivers, service integration, diagnostics, boot tooling, recovery notes, firmware research, and desktop fixes needed to make A720-specific hardware behave predictably on modern Linux. The capacitive volume controls were the starting point, not the limit: the project now covers the A720 WMI protocol and absolute-volume bridge, DKMS lifecycle, Broadcom Bluetooth firmware, Nouveau/Mesa graphics, Debian audio quirks, Secure Boot and standalone GRUB research, ReaR recovery media, read-only firmware acquisition, offline splash-image construction, and privacy-conscious system auditing.
 
-## Status
+The normal installer handles the core platform support. Bootloader, recovery, and firmware work is intentionally kept separate, documented, and conservative.
 
-- Volume Up: working
-- Volume Down: working
+## Scope and status
+
+### Core platform support
+
+- Capacitive Volume Up and Volume Down: working
+- Stateful Lenovo WMI handshake: reverse-engineered and implemented
+- Absolute-volume bridge: working with PulseAudio and PipeWire/WirePlumber
 - Persistent startup: working through DKMS and systemd
-- PulseAudio: supported
-- PipeWire/WirePlumber: supported
+- Retained-kernel support: DKMS and initramfs integration documented and verified
 - Broadcom BCM20702A1 Bluetooth firmware: documented and verified
 - Nouveau/Mesa accelerated graphics: documented and verified
-- Brightness buttons: protocol identified, not implemented yet
+- Hardware verification and sanitized boot diagnostics: included
 
-## How it works
+### Additional research and tooling
+
+- Brightness-button protocol: identified, not implemented yet
+- Owner-signed standalone GRUB and Secure Boot font handling: documented with reproducible tooling
+- ReaR recovery-media Secure Boot layout: documented
+- A720 firmware-logo workflow: limited to read-only acquisition and offline candidate construction
+- Picom/Xfce desktop shutdown artefacts: documented
+- Review-before-publish system inventory capture: included
+
+## How the volume-control subsystem works
 
 The firmware exposes two ACPI WMI GUIDs:
 
@@ -33,7 +46,7 @@ Lenovo's volume protocol is stateful:
 
 This is why the initial WMI event payload cannot be mapped directly to Up or Down keycodes.
 
-## Requirements
+## Core installer requirements
 
 - Lenovo IdeaCentre A720
 - Linux with the WMI bus driver API used by Linux 6.12
@@ -45,7 +58,7 @@ This is why the initial WMI event payload cannot be mapped directly to Up or Dow
 
 The installer currently targets Debian-family systems and uses `apt-get`.
 
-## Install
+## Install the core support
 
 ```bash
 sudo ./install.sh
@@ -60,7 +73,7 @@ The installer:
 - waits for a usable PulseAudio or PipeWire default sink before starting the bridge;
 - enables both services.
 
-## Verify
+## Verify the core support
 
 ```bash
 systemctl status a720-wmi-handshake.service
