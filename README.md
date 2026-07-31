@@ -1,6 +1,6 @@
-# Lenovo IdeaCentre A720 Linux bezel controls
+# Lenovo IdeaCentre A720 Linux support
 
-Reverse-engineered Linux support for the capacitive volume controls on the Lenovo IdeaCentre A720 all-in-one PC.
+Reverse-engineered Linux hardware support, beginning with the capacitive volume controls on the Lenovo IdeaCentre A720 all-in-one PC.
 
 The project reproduces the WMI handshake used by Lenovo's original Windows OSD utility and bridges the controller's absolute volume requests to PulseAudio or PipeWire.
 
@@ -35,7 +35,7 @@ This is why the initial WMI event payload cannot be mapped directly to Up or Dow
 
 - Lenovo IdeaCentre A720
 - Linux with the WMI bus driver API used by Linux 6.12
-- Kernel headers for the running kernel
+- Kernel headers for each installed kernel that should retain bezel support
 - DKMS
 - Python 3
 - Either PulseAudio with `pactl`, or PipeWire/WirePlumber with `wpctl`
@@ -51,10 +51,11 @@ sudo ./install.sh
 
 The installer:
 
-- installs build dependencies;
-- builds and installs the module through DKMS;
-- creates a system service for the WMI handshake;
-- installs a per-user audio bridge;
+- installs build dependencies and available headers for installed kernels;
+- builds and installs the module through DKMS for every kernel with headers;
+- adds the module to initramfs-tools and refreshes matching initramfs images;
+- installs tracked systemd units for the WMI handshake and audio bridge;
+- waits for a usable PulseAudio or PipeWire default sink before starting the bridge;
 - enables both services.
 
 ## Verify
@@ -71,6 +72,38 @@ A healthy user-service log resembles:
 A720 bridge ready: backend=pactl, initial volume=50%
 Lenovo bezel requested 56% -> applied
 ```
+
+
+## Retaining a fallback kernel
+
+DKMS can only build the A720 module for kernels whose matching headers are installed. The installer attempts to install headers for every kernel under `/lib/modules` when the package is still available.
+
+To deliberately retain a known-good fallback kernel on Debian, mark both its image and headers as manually installed:
+
+```bash
+sudo apt-mark manual \
+  linux-image-<version>-amd64 \
+  linux-headers-<version>-amd64
+```
+
+Verify coverage with:
+
+```bash
+sudo dkms status
+lsinitramfs /boot/initrd.img-<version>-amd64 | grep a720_wmi_handshake
+```
+
+A fallback kernel without matching headers can still boot, but it will not receive rebuilt out-of-tree modules.
+
+## Debian ALSA restore-rule workaround
+
+Some Debian `alsa-utils` builds contain jumps to `alsa_restore_std` without defining that label. This can interfere with ALSA state restoration. An optional guarded helper is included:
+
+```bash
+sudo ./extras/debian/fix-alsa-restore-rule.sh
+```
+
+The helper refuses unknown rule layouts, copies the vendor rule into `/etc/udev/rules.d`, and corrects only the missing label. The `/etc` override survives package updates. It is intentionally not run by the main installer because it changes system-wide audio restoration behaviour.
 
 ## Uninstall
 

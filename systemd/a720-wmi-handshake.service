@@ -1,0 +1,14 @@
+[Unit]
+Description=Lenovo IdeaCentre A720 bezel WMI handshake
+After=systemd-modules-load.service
+Before=graphical.target
+
+[Service]
+Type=oneshot
+ExecStart=/sbin/modprobe a720_wmi_handshake initialize=1 sync_volume=50 dump_response=0
+ExecStartPost=/bin/sh -c 'for i in 1 2 3 4 5; do test -e /sys/module/a720_wmi_handshake/parameters/sync_volume && chmod 0666 /sys/module/a720_wmi_handshake/parameters/sync_volume && exit 0; sleep 1; done; exit 1'
+RemainAfterExit=yes
+ExecStop=/sbin/modprobe -r a720_wmi_handshake
+
+[Install]
+WantedBy=multi-user.target
