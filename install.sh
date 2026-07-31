@@ -14,47 +14,60 @@ USER_NAME=${SUDO_USER:-}
 
 USER_HOME=$(getent passwd "$USER_NAME" | cut -d: -f6)
 USER_UID=$(id -u "$USER_NAME")
+USER_GID=$(id -g "$USER_NAME")
+[ -n "$USER_HOME" ] && [ -d "$USER_HOME" ] || {
+  echo "Could not resolve the desktop user's home directory." >&2
+  exit 1
+}
+
 ROOT=$(CDPATH= cd -- "$(dirname -- "$0")" && pwd)
 MODULE_NAME=a720-wmi-handshake
 MODULE_VERSION=1.0.0
 RUNNING_KERNEL=$(uname -r)
+running_tree="/lib/modules/$RUNNING_KERNEL"
 
 apt-get update
+apt-get install -y build-essential dkms python3 pulseaudio-utils
 
-header_packages=
-for module_dir in /lib/modules/*; do
-  [ -d "$module_dir" ] || continue
-  kernel=${module_dir##*/}
-  package="linux-headers-$kernel"
+if [ ! -e "$running_tree/build/Makefile" ]; then
+  apt-get install -y "linux-headers-$RUNNING_KERNEL"
+fi
 
-  if apt-cache show "$package" >/dev/null 2>&1; then
-    header_packages="$header_packages $package"
-  else
-    echo "Warning: no header package is available for installed kernel $kernel" >&2
-  fi
-done
-
-[ -n "$header_packages" ] || header_packages=" linux-headers-$RUNNING_KERNEL"
-# Package names cannot contain whitespace; deliberate word splitting is required here.
-# shellcheck disable=SC2086
-apt-get install -y build-essential dkms python3 pulseaudio-utils $header_packages
-
-SRC="/usr/src/$MODULE_NAME-$MODULE_VERSION"
-rm -rf "$SRC"
-mkdir -p "$SRC"
-cp "$ROOT/src/a720_wmi_handshake.c" "$ROOT/src/Makefile" "$ROOT/src/dkms.conf" "$SRC/"
-
-dkms remove -m "$MODULE_NAME" -v "$MODULE_VERSION" --all >/dev/null 2>&1 || true
-dkms add -m "$MODULE_NAME" -v "$MODULE_VERSION"
-
-running_tree="/lib/modules/$RUNNING_KERNEL"
 [ -e "$running_tree/build/Makefile" ] || {
   echo "Headers for the running kernel $RUNNING_KERNEL are unavailable." >&2
   exit 1
 }
 
-dkms build -m "$MODULE_NAME" -v "$MODULE_VERSION" -k "$RUNNING_KERNEL"
-dkms install -m "$MODULE_NAME" -v "$MODULE_VERSION" -k "$RUNNING_KERNEL"
+for module_dir in /lib/modules/*; do
+  [ -d "$module_dir" ] || continue
+  kernel=${module_dir##*/}
+  [ "$kernel" = "$RUNNING_KERNEL" ] && continue
+  [ -e "$module_dir/build/Makefile" ] && continue
+
+  package="linux-headers-$kernel"
+  if apt-get install -y "$package"; then
+    [ -e "$module_dir/build/Makefile" ] ||
+      echo "Warning: $package installed but no build tree appeared for $kernel" >&2
+  else
+    echo "Warning: no installable headers are available for fallback kernel $kernel" >&2
+  fi
+done
+
+SRC="/usr/src/$MODULE_NAME-$MODULE_VERSION"
+SRC_TMP="${SRC}.tmp.$$"
+rm -rf "$SRC_TMP"
+mkdir -p "$SRC_TMP"
+trap 'rm -rf "$SRC_TMP"' EXIT HUP INT TERM
+cp "$ROOT/src/a720_wmi_handshake.c" "$ROOT/src/Makefile" "$ROOT/src/dkms.conf" "$SRC_TMP/"
+rm -rf "$SRC"
+mv "$SRC_TMP" "$SRC"
+trap - EXIT HUP INT TERM
+
+# --force rebuilds and reinstalls this version without deleting a known-good
+# module first. A failed build therefore leaves the currently installed module
+# available for that kernel.
+dkms build --force -m "$MODULE_NAME" -v "$MODULE_VERSION" -k "$RUNNING_KERNEL"
+dkms install --force -m "$MODULE_NAME" -v "$MODULE_VERSION" -k "$RUNNING_KERNEL"
 built_kernels=" $RUNNING_KERNEL"
 
 for module_dir in /lib/modules/*; do
@@ -67,11 +80,11 @@ for module_dir in /lib/modules/*; do
     continue
   fi
 
-  if dkms build -m "$MODULE_NAME" -v "$MODULE_VERSION" -k "$kernel" &&
-     dkms install -m "$MODULE_NAME" -v "$MODULE_VERSION" -k "$kernel"; then
+  if dkms build --force -m "$MODULE_NAME" -v "$MODULE_VERSION" -k "$kernel" &&
+     dkms install --force -m "$MODULE_NAME" -v "$MODULE_VERSION" -k "$kernel"; then
     built_kernels="$built_kernels $kernel"
   else
-    echo "Warning: DKMS build failed for fallback kernel $kernel" >&2
+    echo "Warning: DKMS refresh failed for fallback kernel $kernel; any previously installed module was left in place" >&2
   fi
 done
 
@@ -92,19 +105,19 @@ install -m 0644 \
   /etc/systemd/system/a720-wmi-handshake.service
 
 user_systemd="$USER_HOME/.config/systemd/user"
-install -d -o "$USER_NAME" -g "$USER_NAME" \
+install -d -o "$USER_UID" -g "$USER_GID" \
   "$USER_HOME/.local/bin" \
   "$user_systemd/a720-volume-bridge.service.d"
 
-install -m 0755 -o "$USER_NAME" -g "$USER_NAME" \
+install -m 0755 -o "$USER_UID" -g "$USER_GID" \
   "$ROOT/user/a720_volume_bridge.py" \
   "$USER_HOME/.local/bin/a720_volume_bridge.py"
 
-install -m 0644 -o "$USER_NAME" -g "$USER_NAME" \
+install -m 0644 -o "$USER_UID" -g "$USER_GID" \
   "$ROOT/systemd/a720-volume-bridge.service" \
   "$user_systemd/a720-volume-bridge.service"
 
-install -m 0644 -o "$USER_NAME" -g "$USER_NAME" \
+install -m 0644 -o "$USER_UID" -g "$USER_GID" \
   "$ROOT/systemd/a720-volume-bridge.service.d/audio-ready.conf" \
   "$user_systemd/a720-volume-bridge.service.d/audio-ready.conf"
 
