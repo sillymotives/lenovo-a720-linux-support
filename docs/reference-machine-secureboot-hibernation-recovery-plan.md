@@ -14,13 +14,14 @@ The target is not a compromise between features. The reference machine is
 expected to provide all three of the following:
 
 1. the Darkstar graphical standalone GRUB path ("prettyboot");
-2. UEFI Secure Boot with a verifiable signed loader chain; and
+2. UEFI Secure Boot with a verifiable signed loader and kernel chain; and
 3. reliable suspend-to-disk hibernation.
 
-The work must preserve the stock Debian shim path as a recovery route until the
-complete chain has been demonstrated under real cold boots and resume tests.
+The work must preserve the stock Debian shim and stock Debian kernel as recovery
+routes until the complete custom path has been demonstrated under real cold
+boots and repeated resume tests.
 
-## Proven state
+## Proven physical state
 
 The following behavior has been demonstrated on the physical machine:
 
@@ -62,53 +63,75 @@ The ext4 filesystem must be checked and shrunk while unmounted. The filesystem
 must be resized before its partition boundary is reduced. The EFI System
 Partition must not be formatted, moved, or repurposed.
 
-## Secure Boot and hibernation boundary
+## Secure Boot and hibernation policy
 
 On the stock Debian kernel, enabling Secure Boot activates kernel lockdown.
-That policy blocks hibernation even when the bootloader, kernel, and swap layout
-are otherwise correct. Replacing the swapfile with a partition improves the
-storage design but does not, by itself, remove this policy conflict.
+Lockdown explicitly blocks hibernation because a mutable image kernel is
+restored from disk. Replacing the swapfile with a partition improves the storage
+design but does not, by itself, remove this policy conflict.
 
-Therefore the final implementation needs an explicit, reviewed kernel policy
-rather than pretending the conflict does not exist. Candidate work includes:
+The upstream and Debian kernel configuration separates three relevant choices:
 
-- determine whether an appropriately configured custom Debian kernel can keep
-  Secure Boot verification while permitting hibernation on this machine;
-- document exactly which lockdown guarantees are relaxed and why;
-- sign the resulting kernel and every out-of-tree kernel module with keys that
-  are trusted by the enrolled owner chain;
-- keep the stock Debian kernel and loader available as a fallback;
-- test cold boot, module loading, hibernation image creation, and resume under
-  Secure Boot rather than inferring success from static signatures alone.
+- `CONFIG_LOCK_DOWN_IN_EFI_SECURE_BOOT` automatically enters integrity lockdown
+  when firmware Secure Boot is enabled;
+- `CONFIG_HIBERNATION` provides suspend-to-disk support; and
+- `CONFIG_MODULE_SIG_FORCE` requires every loadable module to carry a valid
+  signature trusted by the running kernel.
 
-A custom kernel that permits hibernation under Secure Boot is a deliberate
-security-policy choice. It must be described honestly: resume restores mutable
-kernel memory from disk, so allowing it changes the integrity model provided by
-lockdown.
+This provides a coherent candidate route for the reference machine:
 
-## Prettyboot status and repair items
+1. build a Debian-derived kernel with hibernation enabled;
+2. disable only automatic lockdown on EFI Secure Boot;
+3. keep mandatory module-signature enforcement enabled;
+4. give the kernel a distinct local version and retain module-version checks;
+5. sign the kernel image with the enrolled owner key;
+6. sign the A720 DKMS module and every other out-of-tree module with a trusted
+   key;
+7. retain the stock Debian kernel, which continues to use normal lockdown under
+   Secure Boot, as the conservative fallback.
+
+This is a deliberate security-policy choice, not equivalent to stock Debian
+lockdown. Secure Boot still authenticates the firmware-to-loader-to-kernel path,
+and mandatory module signatures can protect the module-loading boundary, but an
+unsigned hibernation image remains mutable offline. That reduced integrity
+claim must stay visible in the documentation and acceptance tests.
+
+## Prettyboot source audit
 
 The one-shot boot test proved that the current standalone GRUB payload can show
 the Darkstar ignition ring and hand off to Debian. The permanent boot order was
 not stable during earlier testing, so future promotion must happen only after
 Secure Boot and hibernation are both proven.
 
-Known repository-side issue:
+A source audit corrected an earlier false alarm: leading `+` characters before
+GRUB theme components are required grammar, not accidental diff markers. The
+tracked declarations such as `+ label`, `+ boot_menu`, and
+`+ circular_progress` match the GNU GRUB theme format. The circular component
+uses the special `__timeout__` identifier and the builder generates and embeds
+both ignition-ring PNG assets.
 
-- the tracked Darkstar GRUB theme currently contains literal leading `+`
-  characters before two graphical component declarations. Those markers must
-  be removed before any clean rebuild is considered authoritative.
+The tracked standalone builder also performs the necessary reproducibility and
+trust checks:
+
+- generates the ignition assets from source;
+- embeds the theme and all required fonts;
+- inherits Debian distribution SBAT rows and appends `grub.darkstar`;
+- verifies the embedded SBAT bytes;
+- signs the final image with a locally supplied owner key;
+- verifies the signature against the supplied certificate;
+- verifies that the PE certificate table exists within the final file; and
+- makes no ESP or EFI-variable changes during a build.
 
 Required prettyboot validation sequence:
 
-1. rebuild from a clean repository checkout after fixing the theme source;
-2. inherit and verify the distribution SBAT rows;
+1. build from a clean repository checkout;
+2. verify the inherited and project SBAT rows;
 3. sign the standalone GRUB image with the locally held owner key;
 4. verify the PE signature and certificate-table placement;
 5. stage the image without overwriting the Debian fallback;
 6. test it first with `BootNext` while Secure Boot is enabled;
 7. confirm the running system reports the Darkstar entry as `BootCurrent`;
-8. perform a cold boot and a hibernate-resume cycle through that path;
+8. perform a cold boot and hibernate-resume cycle through that path;
 9. promote it permanently only after all tests pass.
 
 No private key, certificate, signed EFI image, or ESP backup belongs in this
@@ -125,30 +148,53 @@ The owner has retained:
   Partition contents.
 
 Those recovery artifacts remain private and must not be committed. Before the
-offline partition edit, verify the recovery ISO checksum, confirm the archive
-stream is readable, and perform at least one boot test of the recovery medium.
+offline partition edit, verify the recovery ISO checksum, inspect its boot
+catalog, confirm the archive stream is readable, confirm the known-good
+prettyboot payload is present in the archive, and boot the recovery medium once
+without starting a restore.
 
 The Kingston DataTraveler containing ReaR backups is protected media. It must
 not be reformatted, repartitioned, used as a bootloader experiment target, or
 used as temporary workspace.
+
+## Read-only integrated preflight
+
+`tools/preflight-secureboot-hibernation.sh` performs the machine-side checks
+without changing system state. It accepts paths to the recovery ISO, checksum
+manifest, and ReaR archive, writes a private local report under `/root`, and
+checks:
+
+- disk identity, GPT consistency, and estimated ext4 shrink margin;
+- current swap, resume, Secure Boot, and lockdown state;
+- EFI entries, prettyboot hash, signature table, MOK signer match, and SBAT;
+- current kernel policy, DKMS signer state, and kernel-build prerequisites;
+- repository cleanliness and the expected GRUB theme syntax;
+- recovery ISO checksum and boot metadata; and
+- complete ReaR archive listing plus the archived prettyboot hash.
+
+The script does not mount, unmount, repartition, resize, sign, copy to the ESP,
+or alter EFI variables.
 
 ## Execution gates
 
 Do not proceed to the next gate until the current one has evidence attached to
 the private maintenance log.
 
-### Gate 1: recovery readiness
+### Gate 1: recovery and preflight readiness
 
-- verify the supplied checksum manifest against the recovery ISO;
+- run the integrated read-only preflight with all three recovery paths;
+- obtain zero mandatory failures;
 - boot the recovery medium without starting a restore;
-- confirm the backup archive can be listed and tested;
-- capture the current partition table and EFI entry list privately.
+- confirm keyboard, display, internal disk, and protected backup device are
+  visible in the rescue environment;
+- return to Debian without writing either disk.
 
 ### Gate 2: offline storage repair
 
 - boot a separate live environment;
 - verify the internal disk identity before making changes;
-- shrink the unmounted root filesystem and root partition;
+- run a forced ext4 check while the root filesystem is unmounted;
+- shrink the filesystem before changing the partition boundary;
 - recreate one 20 GiB swap partition;
 - make no change to the EFI System Partition or protected backup media.
 
@@ -159,26 +205,30 @@ the private maintenance log.
 - remove the swapfile only after the partition is active;
 - rebuild all retained initramfs images;
 - verify the kernel resume target;
-- complete one controlled hibernate-resume test with Secure Boot disabled.
+- complete repeated controlled hibernate-resume tests with Secure Boot disabled.
 
-### Gate 4: Secure Boot engineering
+### Gate 4: custom kernel policy
 
-- fix the tracked theme syntax;
-- select and document the kernel-lockdown policy;
-- build and sign the complete trusted chain locally;
-- verify all signatures and SBAT data;
-- keep the stock Debian path untouched.
+- build a Debian-derived kernel with automatic EFI lockdown disabled;
+- retain hibernation, module versioning, and mandatory module signatures;
+- sign the kernel and out-of-tree modules with trusted local keys;
+- install it alongside, not over, the stock Debian kernels;
+- test boot, module loading, and repeated hibernation while Secure Boot remains
+  disabled.
 
-### Gate 5: integrated certification
+### Gate 5: integrated Secure Boot certification
 
 With Secure Boot enabled and Darkstar selected through `BootNext`:
 
-- confirm the firmware accepted the signed chain;
-- confirm the intended kernel and signed modules loaded;
+- confirm the firmware accepted the signed loader and kernel chain;
+- confirm the intended custom kernel loaded;
+- confirm lockdown is deliberately `none` under that kernel;
+- confirm unsigned modules are rejected and required signed modules load;
 - confirm prettyboot appeared;
 - confirm hibernation is offered;
-- hibernate and resume successfully;
+- hibernate and resume successfully more than once;
 - cold boot again;
+- verify the stock Debian path still boots with its normal lockdown policy;
 - only then consider changing the permanent boot order.
 
 ## Failure policy
