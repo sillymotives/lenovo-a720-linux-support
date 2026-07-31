@@ -164,7 +164,8 @@ without changing system state. It accepts paths to the recovery ISO, checksum
 manifest, and ReaR archive, writes a private local report under `/root`, and
 checks:
 
-- disk identity, GPT consistency, and estimated ext4 shrink margin;
+- disk identity, GPT consistency, and a conservative free-space gate before the
+  later offline ext4 minimum-size calculation;
 - current swap, resume, Secure Boot, and lockdown state;
 - EFI entries, prettyboot hash, signature table, MOK signer match, and SBAT;
 - current kernel policy, DKMS signer state, and kernel-build prerequisites;
@@ -173,10 +174,9 @@ checks:
 - complete ReaR archive listing plus the archived prettyboot hash.
 
 The script does not mount, unmount, repartition, resize, sign, copy to the ESP,
-or alter EFI variables. Repository CI run 37 passed after the tool and this
-handoff were added; that validates repository policy, shell syntax, whitespace,
-and forbidden-artifact guards. Physical output from the reference machine is
-still required before Gate 1A can pass.
+or alter EFI variables. Repository CI validates repository policy, shell syntax,
+whitespace, and forbidden-artifact guards. Physical output from the reference
+machine is still required before Gate 1A can pass.
 
 ## Execution gates
 
@@ -207,6 +207,7 @@ the private maintenance log.
 - boot a separate live environment;
 - verify the internal disk identity before making changes;
 - run a forced ext4 check while the root filesystem is unmounted;
+- calculate the authoritative minimum ext4 size after the successful check;
 - shrink the filesystem before changing the partition boundary;
 - recreate one 20 GiB swap partition;
 - make no change to the EFI System Partition or protected backup media.
