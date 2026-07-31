@@ -54,6 +54,17 @@ grep -q 'LABEL="alsa_restore_std"' "$tmp" || {
   exit 1
 }
 
+if [ -e "$override" ]; then
+  if cmp -s "$tmp" "$override"; then
+    echo "Corrected ALSA rule override is already installed: $override"
+    exit 0
+  fi
+
+  echo "Existing override differs from the generated correction: $override" >&2
+  echo "Refusing to overwrite an administrator-managed udev rule." >&2
+  exit 1
+fi
+
 install -D -m 0644 "$tmp" "$override"
 echo "Installed update-safe ALSA rule override: $override"
 echo "It will take effect for newly added sound devices and after the next boot."
