@@ -1,0 +1,20 @@
+[Unit]
+Description=Play the Darkstar shutdown jingle
+Wants=sound.target
+After=sound.target
+Before=display-manager.service
+Before=lightdm.service
+Before=plymouth-reboot.service
+Before=plymouth-poweroff.service
+Before=plymouth-halt.service
+ConditionPathExists=/usr/local/share/darkstar/darkstar_shutdown.wav
+
+[Service]
+Type=oneshot
+RemainAfterExit=yes
+ExecStart=/usr/bin/true
+ExecStop=-/usr/bin/timeout -s TERM 3 /usr/local/libexec/darkstar-shutdown-jingle
+TimeoutStopSec=4s
+
+[Install]
+WantedBy=graphical.target

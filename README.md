@@ -140,6 +140,7 @@ The Broadcom firmware blob is not redistributed by this project. The helper acce
 The following material is separate from the normal driver installation. `install.sh` does not build firmware images, replace bootloaders, write the EFI System Partition, or modify EFI variables.
 
 - [`tools/darkstar-grub/README.md`](tools/darkstar-grub/README.md): reproducible owner-signed standalone GRUB construction and staged validation.
+- [`tools/darkstar-audio/README.md`](tools/darkstar-audio/README.md): reproducible early-boot and shutdown jingles using direct ALSA playback.
 - [`docs/darkstar-secure-boot-fonts.md`](docs/darkstar-secure-boot-fonts.md): diagnosis of verified-font loading under Secure Boot.
 - [`docs/rear-secure-boot.md`](docs/rear-secure-boot.md): isolated stock-loader layout for ReaR recovery media.
 - [`docs/firmware-logo.md`](docs/firmware-logo.md): read-only acquisition and offline A720 splash-candidate construction.

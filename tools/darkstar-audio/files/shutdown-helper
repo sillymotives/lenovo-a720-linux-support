@@ -1,0 +1,28 @@
+#!/bin/sh
+
+WAV='/usr/local/share/darkstar/darkstar_shutdown.wav'
+DEVICE='plughw:CARD=PCH,DEV=0'
+
+[ -r "$WAV" ] || exit 0
+
+ATTEMPT=0
+
+while [ "$ATTEMPT" -lt 20 ]
+do
+    if /usr/bin/timeout \
+        -s TERM \
+        2 \
+        /usr/bin/aplay \
+        -q \
+        -D "$DEVICE" \
+        "$WAV" \
+        >/dev/null 2>&1
+    then
+        exit 0
+    fi
+
+    ATTEMPT=$((ATTEMPT + 1))
+    /usr/bin/sleep 0.05
+done
+
+exit 0
