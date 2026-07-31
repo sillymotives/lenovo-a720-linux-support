@@ -1,0 +1,169 @@
+#!/bin/sh
+
+PREREQ="plymouth"
+
+prereqs()
+{
+    echo "$PREREQ"
+}
+
+case "${1:-}" in
+    prereqs)
+        prereqs
+        exit 0
+        ;;
+esac
+
+SPLASH=false
+
+for ARGUMENT in $(cat /proc/cmdline)
+do
+    case "$ARGUMENT" in
+        splash)
+            SPLASH=true
+            ;;
+        nosplash|plymouth.enable=0|darkstar.audio=0)
+            exit 0
+            ;;
+    esac
+done
+
+[ "$SPLASH" = true ] || exit 0
+
+log_message()
+{
+    printf '<6>darkstar-boot-jingle: %s\n' "$*" \
+        > /dev/kmsg 2>/dev/null || true
+}
+
+log_file()
+{
+    PREFIX=$1
+    FILE=$2
+
+    [ -s "$FILE" ] || return 0
+
+    while IFS= read -r LINE
+    do
+        log_message "$PREFIX$LINE"
+    done < "$FILE"
+}
+
+export HOME='/'
+
+modprobe snd_hda_intel >/dev/null 2>&1 || {
+    log_message 'snd_hda_intel could not be loaded'
+    exit 0
+}
+
+modprobe snd_hda_codec_realtek >/dev/null 2>&1 || true
+modprobe snd_hda_codec_hdmi >/dev/null 2>&1 || true
+
+ATTEMPT=0
+CARD_INDEX=''
+
+while [ "$ATTEMPT" -lt 60 ]
+do
+    CARD_INDEX=$(
+        awk '$2 ~ /^\[PCH/ { print $1; exit }' \
+            /proc/asound/cards 2>/dev/null || true
+    )
+
+    if [ -n "$CARD_INDEX" ] &&
+       [ -e "/dev/snd/controlC${CARD_INDEX}" ] &&
+       [ -e "/dev/snd/pcmC${CARD_INDEX}D0p" ]
+    then
+        break
+    fi
+
+    ATTEMPT=$((ATTEMPT + 1))
+    sleep 0.05
+done
+
+if [ -z "$CARD_INDEX" ] ||
+   [ ! -e "/dev/snd/pcmC${CARD_INDEX}D0p" ]
+then
+    log_message 'PCH playback device was unavailable'
+    exit 0
+fi
+
+log_message "PCH resolved as card $CARD_INDEX"
+sleep 0.35
+
+ALSA_CONFIG='/run/darkstar-alsa.conf'
+MIXER_LOG='/run/darkstar-boot-jingle.amixer.log'
+PLAY_LOG='/run/darkstar-boot-jingle.aplay.log'
+
+cat > "$ALSA_CONFIG" <<ALSACONF
+ctl.darkstar {
+    type hw
+    card $CARD_INDEX
+}
+
+pcm.darkstar {
+    type hw
+    card $CARD_INDEX
+    device 0
+    subdevice 0
+}
+ALSACONF
+
+export ALSA_CONFIG_PATH="$ALSA_CONFIG"
+rm -f -- "$MIXER_LOG" "$PLAY_LOG"
+
+set_control()
+{
+    CONTROL=$1
+    shift
+    : > "$MIXER_LOG"
+
+    if /usr/bin/amixer \
+        -q \
+        -D darkstar \
+        sset "$CONTROL" "$@" \
+        2>"$MIXER_LOG"
+    then
+        return 0
+    fi
+
+    STATUS=$?
+    log_message "mixer control failed: $CONTROL, status $STATUS"
+    log_file 'amixer: ' "$MIXER_LOG"
+    return 0
+}
+
+set_control Master 39 unmute
+set_control Speaker 64 unmute
+
+PLAY_ATTEMPT=1
+
+while [ "$PLAY_ATTEMPT" -le 5 ]
+do
+    log_message "playback attempt $PLAY_ATTEMPT starting"
+    : > "$PLAY_LOG"
+
+    if /usr/bin/timeout \
+        -s TERM \
+        2 \
+        /usr/bin/aplay \
+        -D darkstar \
+        /usr/share/darkstar/darkstar_boot.wav \
+        >"$PLAY_LOG" 2>&1
+    then
+        log_message 'playback complete'
+        rm -f -- "$ALSA_CONFIG" "$MIXER_LOG" "$PLAY_LOG"
+        exit 0
+    fi
+
+    STATUS=$?
+    log_message \
+        "playback attempt $PLAY_ATTEMPT failed with status $STATUS"
+    log_file 'aplay: ' "$PLAY_LOG"
+
+    PLAY_ATTEMPT=$((PLAY_ATTEMPT + 1))
+    sleep 0.20
+done
+
+log_message 'all playback attempts failed'
+rm -f -- "$ALSA_CONFIG" "$MIXER_LOG" "$PLAY_LOG"
+exit 0

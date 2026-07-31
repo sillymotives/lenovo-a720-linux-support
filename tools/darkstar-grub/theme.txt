@@ -42,13 +42,26 @@ message-bg-color: "#000000"
     item_spacing = 6
 }
 
-+ label {
++ circular_progress {
     id = "__timeout__"
-    left = 0
-    top = 84%
-    width = 100%
+    left = 16%
+    top = 44%
+    width = 180
+    height = 180
+    center_bitmap = "ignition-center.png"
+    tick_bitmap = "ignition-tick.png"
+    num_ticks = 24
+    ticks_disappear = true
+    start_angle = "270 deg"
+}
+
++ label {
+    id = "ignition_status"
+    left = 4%
+    top = 64%
+    width = 34%
     height = 32
-    text = "IGNITION IN %d"
+    text = "IGNITION IN"
     align = "center"
     font = "Darkstar Status Regular 22"
     color = "#7af6ff"

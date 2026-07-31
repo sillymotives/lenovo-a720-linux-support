@@ -1,0 +1,37 @@
+#!/bin/sh
+set -eu
+
+PREREQ=""
+
+prereqs()
+{
+    echo "$PREREQ"
+}
+
+case "${1:-}" in
+    prereqs)
+        prereqs
+        exit 0
+        ;;
+esac
+
+. /usr/share/initramfs-tools/hook-functions
+
+WAV_SOURCE='/usr/local/share/darkstar/darkstar_boot.wav'
+WAV_TARGET='/usr/share/darkstar/darkstar_boot.wav'
+
+[ -f "$WAV_SOURCE" ] || {
+    echo "Missing Darkstar boot WAV: $WAV_SOURCE" >&2
+    false
+}
+
+copy_exec /usr/bin/aplay
+copy_exec /usr/bin/amixer
+copy_exec /usr/bin/timeout
+
+force_load snd_hda_intel
+manual_add_modules snd_hda_codec_realtek
+manual_add_modules snd_hda_codec_hdmi
+
+mkdir -p "$DESTDIR/usr/share/darkstar"
+cp -a -- "$WAV_SOURCE" "$DESTDIR$WAV_TARGET"

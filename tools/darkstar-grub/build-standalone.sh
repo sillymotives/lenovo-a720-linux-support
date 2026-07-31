@@ -132,6 +132,20 @@ printf 'grub.darkstar,1,Darkstar,grub2,%s,%s\n' \
 # firmware canvas from appearing as a dark rectangle during handoff.
 magick -size 64x64 xc:'#000000' "PNG24:$BUILD/background.png"
 
+# Generate the graphical timeout assets during each reproducible build.
+# The circular indicator uses a small central ignition core and cyan dots.
+magick -size 36x36 xc:none \
+    -fill '#ff58ff' \
+    -stroke '#7af6ff' \
+    -strokewidth 2 \
+    -draw 'circle 18,18 18,8' \
+    "PNG32:$BUILD/ignition-center.png"
+
+magick -size 10x10 xc:none \
+    -fill '#7af6ff' \
+    -draw 'circle 5,5 5,1' \
+    "PNG32:$BUILD/ignition-tick.png"
+
 cat > "$BUILD/grub.cfg" <<EOF
 search --fs-uuid --set=root $ROOT_UUID
 set prefix=(\$root)/boot/grub
@@ -173,6 +187,8 @@ grub-mkstandalone \
     "/boot/grub/grub.cfg=$BUILD/grub.cfg" \
     "/boot/grub/themes/darkstar/theme.txt=$THEME" \
     "/boot/grub/themes/darkstar/background.png=$BUILD/background.png" \
+    "/boot/grub/themes/darkstar/ignition-center.png=$BUILD/ignition-center.png" \
+    "/boot/grub/themes/darkstar/ignition-tick.png=$BUILD/ignition-tick.png" \
     "/fonts/unicode.pf2=$UNICODE_FONT" \
     "/boot/grub/fonts/darkstar-title.pf2=$TITLE_FONT" \
     "/boot/grub/fonts/darkstar-menu.pf2=$MENU_FONT" \
