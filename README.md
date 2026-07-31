@@ -122,6 +122,20 @@ The helper refuses unknown rule layouts, copies the vendor rule into `/etc/udev/
 
 The Broadcom firmware blob is not redistributed by this project. The helper accepts a lawfully obtained user-supplied file and validates its exact size and SHA-256 digest before installation.
 
+## Experimental boot, recovery, and firmware research
+
+The following material is separate from the normal driver installation. `install.sh` does not build firmware images, replace bootloaders, write the EFI System Partition, or modify EFI variables.
+
+- [`tools/darkstar-grub/README.md`](tools/darkstar-grub/README.md): reproducible owner-signed standalone GRUB construction and staged validation.
+- [`docs/darkstar-secure-boot-fonts.md`](docs/darkstar-secure-boot-fonts.md): diagnosis of verified-font loading under Secure Boot.
+- [`docs/rear-secure-boot.md`](docs/rear-secure-boot.md): isolated stock-loader layout for ReaR recovery media.
+- [`docs/firmware-logo.md`](docs/firmware-logo.md): read-only acquisition and offline A720 splash-candidate construction.
+- [`docs/desktop-polish.md`](docs/desktop-polish.md): the Picom/Xfce shutdown ghost-surface fix.
+- [`docs/bluetooth-and-bridges.md`](docs/bluetooth-and-bridges.md): publication and privacy boundaries for machine-state diagnostics.
+- [`tools/system-inventory/capture-public-state.sh`](tools/system-inventory/capture-public-state.sh): deliberately limited review-before-publish inventory capture.
+
+The firmware tooling stops at read-only acquisition and offline candidate construction. The standalone GRUB builder produces a local signed image only; promotion must follow the staged-copy, signature-verification, rollback, and one-time boot procedure documented in its README.
+
 ## Uninstall
 
 ```bash
