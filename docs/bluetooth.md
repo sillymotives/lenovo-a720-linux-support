@@ -20,7 +20,8 @@ sha256: 9372ce8bfe400ef4560ca550007bd4bdf97b8b5ec70d24a45aa977050b6d8e4a
 The firmware blob is not included in this repository. The known copy is covered by Broadcom's WIDCOMM licence, which does not provide a clear general redistribution grant. Obtain the firmware from a source you are licensed to use, then install it with the guarded helper:
 
 ```bash
-sudo ./extras/debian/install-bcm20702a1-firmware.sh /path/to/BCM20702A1-0489-e042.hcd
+sudo sh extras/debian/install-bcm20702a1-firmware.sh \
+  /path/to/BCM20702A1-0489-e042.hcd
 ```
 
 The helper validates the exact size and SHA-256 digest before installation and refuses to overwrite a different existing file.
