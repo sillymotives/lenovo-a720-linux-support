@@ -50,10 +50,18 @@ rm -f \
 rmdir /etc/systemd/system/a720-wmi-handshake.service.d 2>/dev/null || true
 systemctl daemon-reload
 
-dkms remove -m "$MODULE_NAME" -v "$MODULE_VERSION" --all || true
+remove_dkms_version() {
+  version=$1
+  if /usr/sbin/dkms status -m "$MODULE_NAME" -v "$version" 2>/dev/null |
+      grep -Fq "$MODULE_NAME/$version"; then
+    /usr/sbin/dkms remove -m "$MODULE_NAME" -v "$version" --all
+  fi
+}
+
+remove_dkms_version "$MODULE_VERSION"
 # Remove the historical pre-hardening version as well. DKMS may otherwise
 # restore it as the original module when version 1.1.0 is removed.
-dkms remove -m "$MODULE_NAME" -v 1.0.0 --all || true
+remove_dkms_version 1.0.0
 rm -rf "/usr/src/$MODULE_NAME-$MODULE_VERSION" \
   "/usr/src/$MODULE_NAME-1.0.0"
 
