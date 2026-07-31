@@ -47,6 +47,16 @@ have()
     command -v "$1" >/dev/null 2>&1
 }
 
+is_sha256()
+{
+    value=$1
+    [ "${#value}" -eq 64 ] || return 1
+    case "$value" in
+        *[!0-9A-Fa-f]*) return 1 ;;
+    esac
+    return 0
+}
+
 section()
 {
     printf '\n=== %s ===\n' "$*"
@@ -86,9 +96,9 @@ for command_name in \
  done
 
 for command_name in \
-    apt-cache blkid dkms dpkg-query efibootmgr file git grub-script-check \
-    isoinfo keyctl mokutil objcopy parted resize2fs sbverify sfdisk sgdisk \
-    xorriso
+    apt-cache blkid busctl dkms dpkg-query efibootmgr file git \
+    grub-script-check isoinfo keyctl modinfo mokutil objcopy parted resize2fs \
+    sbverify sfdisk sgdisk xorriso
  do
     if have "$command_name"; then
         printf 'optional: %s\n' "$command_name"
@@ -458,25 +468,28 @@ if [ -n "$RECOVERY_ISO" ] && [ -f "$RECOVERY_ISO" ]; then
     if [ -n "$CHECKSUM_FILE" ] && [ -f "$CHECKSUM_FILE" ]; then
         printf 'manifest: %s\n' "$CHECKSUM_FILE"
         ISO_BASE=$(basename -- "$RECOVERY_ISO")
-        EXPECTED_ISO_SHA256=$(awk -v base="$ISO_BASE" '
-            $1 ~ /^[[:xdigit:]]{64}$/ {
-                name=$2
-                sub(/^\*/, "", name)
-                sub(/^.[/]/, "", name)
-                if (name == base) {
-                    print tolower($1)
-                    exit
-                }
-            }
-        ' "$CHECKSUM_FILE")
+        EXPECTED_ISO_SHA256=''
+        HASH_COUNT=0
+        SINGLE_HASH=''
 
-        if [ -z "$EXPECTED_ISO_SHA256" ]; then
-            HASH_COUNT=$(awk '$1 ~ /^[[:xdigit:]]{64}$/ { count++ } END { print count+0 }' \
-                "$CHECKSUM_FILE")
-            if [ "$HASH_COUNT" -eq 1 ]; then
-                EXPECTED_ISO_SHA256=$(awk '$1 ~ /^[[:xdigit:]]{64}$/ { print tolower($1); exit }' \
-                    "$CHECKSUM_FILE")
+        while read -r hash name rest; do
+            if ! is_sha256 "$hash"; then
+                continue
             fi
+
+            HASH_COUNT=$((HASH_COUNT + 1))
+            SINGLE_HASH=$(printf '%s' "$hash" | tr 'A-F' 'a-f')
+            name=${name#\*}
+            name=${name#./}
+
+            if [ "$name" = "$ISO_BASE" ]; then
+                EXPECTED_ISO_SHA256=$SINGLE_HASH
+                break
+            fi
+        done < "$CHECKSUM_FILE"
+
+        if [ -z "$EXPECTED_ISO_SHA256" ] && [ "$HASH_COUNT" -eq 1 ]; then
+            EXPECTED_ISO_SHA256=$SINGLE_HASH
         fi
 
         if [ -z "$EXPECTED_ISO_SHA256" ]; then
