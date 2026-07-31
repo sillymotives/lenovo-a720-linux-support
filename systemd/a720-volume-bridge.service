@@ -6,6 +6,11 @@ Type=simple
 ExecStart=%h/.local/bin/a720_volume_bridge.py
 Restart=on-failure
 RestartSec=3
+NoNewPrivileges=true
+PrivateTmp=true
+ProtectHome=read-only
+RestrictAddressFamilies=AF_UNIX
+LockPersonality=true
 
 [Install]
 WantedBy=default.target
