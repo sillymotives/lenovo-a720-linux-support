@@ -1,171 +1,214 @@
-# Reference machine: assisted-networking amendment
+# Reference machine: remote-first installer control amendment
 
 Status date: 2026-08-02
 
-This amendment makes authenticated wired networking a mandatory usability and
-safety requirement for the Lenovo IdeaCentre A720 read-only rescue environment,
-the future signed destructive-installer UKI, and the initial encrypted-base
-installation stage.
+This amendment makes authenticated wired remote control a mandatory safety
+control for the Lenovo IdeaCentre A720 rescue, inventory, installation, and early
+recovery stages.
 
-The operator must not be forced to retype long or delicate commands at the A720
-console. The Acer provisioning host is therefore also the controlled remote
-assistance terminal. Loss of the assistance channel is a stop condition, not a
-reason to improvise commands manually.
+The control exists because long, high-consequence command sequences should not be
+transcribed at a distant installer console. That is an interface hazard, not an
+operator defect. The Acer provisioning host is therefore the normal control
+surface for the A720 installer. The A720's local keyboard and display remain for
+firmware selection, observation, and a short physical-presence challenge only.
+
+Loss of the remote channel is a stop condition. It is never permission to replace
+a reviewed script with improvised manual typing.
 
 Nothing in this amendment authorises partitioning, formatting, LUKS creation,
-filesystem creation, restoration, or EFI-variable changes. Network access does
-not weaken any existing disk-identity, signed-generation, recovery, or typed
-challenge gate.
+filesystem creation, restoration, or EFI-variable changes. Remote access does not
+weaken disk-identity, signed-generation, recovery, evidence, or destructive-action
+gates.
+
+## Control objective
+
+For every installer generation, the operator must be able to:
+
+1. select the intended UEFI network entry at the A720;
+2. observe a concise local readiness screen;
+3. connect from the Acer using one generation-aware command;
+4. execute reviewed scripts and capture their output from the Acer;
+5. stop safely if the link or authenticated session fails; and
+6. confirm a destructive action, when later authorised, without manually
+   transcribing the destructive command itself.
+
+The remote terminal is the canonical administrative interface. The local A720
+console must not be the primary place where long shell commands are entered.
 
 ## Required topology
 
-During rescue and installation, the normal topology is:
+The normal topology is:
 
 ```text
 internet
    |
 Acer Wi-Fi
    |
-Acer operating system and browser
+Acer operating system, browser, evidence store, and SSH client
    |
 Acer wired interface
    |
 isolated direct Ethernet cable
    |
-A720 wired interface and signed rescue or installer environment
+A720 wired interface and rescue or installer environment
 ```
 
-The A720 environment must use only the isolated wired link for remote assistance.
-The exact private addresses, interface names, and public-key fingerprints remain
-in private generation records rather than this public repository.
+The A720 assistance channel uses only the direct wired link. The exact addresses,
+interface names, client-key fingerprint, host-key fingerprint, and generation
+identifier remain in private generation records.
 
-The installer-side network must have:
+The A720-side network must have:
 
-- link carrier on the intended wired interface;
+- carrier on the intended wired interface;
 - one reviewed private IPv4 address on the direct-link subnet;
-- no default route;
-- no DNS configuration;
 - no Wi-Fi activation;
-- no forwarding or routing role; and
-- no dependency on internet access.
+- no forwarding, bridging, masquerading, or routing role;
+- no dependency on public DNS;
+- no generally reachable listener; and
+- no target-disk-backed log or state storage.
 
-The Acer may retain its normal Wi-Fi internet connection. It must not bridge,
-masquerade, or forward traffic from the A720 installer link unless a later
-reviewed amendment explicitly requires it.
+A default route is not required for remote assistance. Installer components and
+public keys should be supplied by a generation-pinned HTTP service on the Acer.
+The Acer may use its Wi-Fi connection to acquire and verify upstream packages,
+but the A720 should receive only the locally served, approved material unless a
+later gate explicitly approves restricted egress.
 
-## Remote assistance service
+## Debian Installer network console
 
-The signed environment must contain and start an SSH-compatible server on the
-isolated wired address. OpenSSH or Dropbear is acceptable when the exact package,
-version, configuration, and binary hashes are recorded in the signed-generation
-manifest.
+The preferred implementation for Debian Installer stages is Debian's
+`network-console` component with `openssh-server-udeb`.
 
-The service must:
+For the current read-only inventory generation, the component may be delivered by
+a local, hash-pinned Debian installer mirror on the Acer. For the future signed
+destructive-installer UKI, the required network-console packages, dependencies,
+configuration, client public key, and helper scripts must be included in the
+signed generation or fetched only from an equivalently authenticated local
+source.
 
-- bind only to the reviewed wired address;
-- accept public-key authentication only;
-- disable password and keyboard-interactive authentication;
-- disable empty passwords;
-- disable agent forwarding, X11 forwarding, TCP forwarding, and tunnelling;
-- use a generation-specific authorised client public key;
-- keep the corresponding private client key only on the Acer with restrictive
-  permissions;
-- write session and command evidence only to `/run` or another memory-backed
-  location until deliberately exported; and
-- stop when the rescue or installer environment shuts down.
+The network console must use public-key authentication. Password and
+keyboard-interactive authentication must be disabled. The normal remote account
+for Debian Installer is `installer`; another account or root login requires an
+explicit generation record and equivalent restrictions.
 
-The embedded authorised key is public material, but it is still generation
-configuration and must be hash-pinned. No private SSH key belongs in the UKI,
-PXE tree, ESP, `KAI_SECRET`, or public repository.
+## Authentication and listener restrictions
 
-A host key may be generated in RAM at boot. The Acer helper must then pin the
-first observed host key to a generation-specific known-hosts file and refuse a
-changed key on later connections to the same generation. `StrictHostKeyChecking`
-must never be disabled.
+The SSH service must:
 
-## Privilege model
+- bind only to the reviewed direct-link address;
+- accept only the generation-approved client public key;
+- disable password, keyboard-interactive, and empty-password authentication;
+- disable agent, X11, TCP, stream-local, and tunnel forwarding;
+- expose no unrelated service;
+- keep logs and transient state in `/run` or another memory-backed filesystem;
+- stop when the installer environment shuts down; and
+- record its package versions, binary hashes, configuration hash, and listening
+  address in the private generation evidence.
 
-Remote assistance may use either:
+The corresponding private client key remains on the Acer with restrictive
+permissions. No private SSH key belongs in the installer image, PXE tree, ESP,
+`KAI_SECRET`, public repository, or target disk.
 
-1. a dedicated temporary assistance account with reviewed privilege escalation;
-   or
-2. root public-key login in the ephemeral signed environment.
+The Acer must pin the observed host key. A host-key change is rejected unless the
+operator deliberately starts a new boot-instance record and verifies the new
+fingerprint against the A720 local display or the signed generation manifest.
+`StrictHostKeyChecking` must never be disabled.
 
-The selected model must be stated in the private generation record. In either
-case, remote access alone must not make a destructive command immediately
+## Remote-first operator workflow
+
+The required workflow is:
+
+1. boot the exact approved A720 generation;
+2. wait for the local screen to show the generation ID, wired address, SSH host
+   fingerprint, and a clear `REMOTE CONTROL READY` state;
+3. run one reviewed connection helper on the Acer;
+4. perform inventory, evidence collection, installer control, and script transfer
+   through that session;
+5. record the transcript and hashes in the private gate evidence;
+6. use the A720 console only for firmware selection, visual cross-checks, and a
+   short physical-presence token when required; and
+7. stop immediately if the displayed identity and the Acer-side identity differ.
+
+Commands longer than a short confirmation token must be transferred as reviewed
+files, here-documents, or versioned scripts from the Acer. Screenshots are useful
+supporting evidence, but machine-readable transcripts are authoritative where
 available.
 
-The first destructive write still requires all existing gates, including:
+## Destructive-action separation
 
-- signed installer identity;
-- stable disk fingerprint and exact geometry;
-- approved sector-map digest;
-- removable-media absence;
-- zero unexpected holders, mounts, swap, and writes;
-- the displayed whole-disk inventory; and
-- the typed challenge derived from both disk and generation identity.
+An SSH login is not destructive authorisation. Remote root access, if used in the
+ephemeral environment, must not expose an unguarded partitioning command.
 
-The remote session may prepare and display the challenge. The operator must still
-perform the explicit confirmation required by the approved destructive helper.
-A generic `yes`, Enter key, unattended timeout, or SSH connection itself is not
-confirmation.
+The first write still requires all existing controls, including:
 
-## Required signed-environment contents
+- signed destructive-installer identity;
+- stable target fingerprint and exact geometry;
+- approved and independently recalculated sector-map digest;
+- complete removable-media absence;
+- zero unexpected mounts, swap, holders, and measured writes;
+- visible whole-disk inventory;
+- current recovery and evidence checks; and
+- the typed challenge derived from both target and generation identity.
 
-The future signed installer UKI must include, as pinned inputs:
+The reviewed destructive helper may be launched from the Acer. It must display
+its complete target and generation evidence before asking for confirmation. When
+physical presence is required, the A720 may display a short one-time token that
+is entered at the Acer. The operator must never be asked to type the destructive
+command itself at the A720 console.
+
+## Required generation contents
+
+Every remote-controlled rescue or installer generation must include or provide
+from a pinned local source:
 
 - the A720 wired-network driver and required firmware;
-- `ip` and route-inspection utilities;
-- `ss` or an equivalent listener-inspection utility;
-- the SSH server and its configuration;
-- the public-key authorised-keys file;
-- a usable shell and the complete network-rescue runtime contract;
-- file-transfer capability through SSH; and
-- sufficient terminal support for a persistent remote session.
+- network configuration and route-inspection tools;
+- listener-inspection capability;
+- Debian `network-console` and `openssh-server-udeb`, or a reviewed equivalent;
+- the generation-approved client public key;
+- a usable shell and file-transfer path;
+- the complete network-rescue runtime contract;
+- a readiness display showing generation, address, and host fingerprint;
+- an in-memory transcript destination; and
+- a generation manifest covering every supplied component.
 
-The exact implementation may include a small session manager, but convenience
-software must not silently add network listeners or write to the target disk.
-
-## Operator workflow
-
-The intended interaction is deliberately simple:
-
-1. boot the exact signed rescue or installer generation;
-2. let the A720 configure the isolated wired address and assistance service;
-3. display the generation identifier, target address, and host-key fingerprint
-   on the local console;
-4. run one reviewed connection helper on the Acer;
-5. conduct inventory and installation work through the remote terminal;
-6. preserve the transcript and hashes in the private gate evidence; and
-7. use the A720 console only for physical-presence checks and the final typed
-   destructive challenge.
-
-Long command blocks should be transferred as reviewed scripts or here-documents
-from the Acer rather than retyped character by character on the A720.
+The final signed destructive-installer UKI must authenticate the remote-control
+configuration together with the kernel, initramfs, command line, metadata, and
+other embedded resources.
 
 ## Assistance-channel evidence
 
-Before the remote channel is accepted, record privately:
+Before a remote channel passes its gate, preserve privately:
 
-- A720 wired-interface carrier and IPv4 address;
-- complete A720 route table proving the absence of a default route;
-- active listeners and the exact address and port used by SSH;
-- SSH server package, binary, and configuration hashes;
-- authorised client-key fingerprint;
-- observed host-key fingerprint and generation-specific known-hosts file hash;
-- Acer client-key permissions;
+- generation and boot-instance identifiers;
+- A720 wired-interface carrier and address;
+- complete route table;
+- active listeners and their bind addresses;
+- SSH package, binary, configuration, and authorised-key hashes;
+- client-key and host-key fingerprints;
+- Acer private-key permissions and known-hosts hash;
 - a successful key-only non-interactive connection test;
-- a successful interactive terminal test;
-- the session transcript location and digest; and
-- confirmation that the target disk write counters did not change because of
-  networking or remote login.
+- a successful interactive terminal and file-transfer test;
+- transcript path and digest;
+- local readiness-screen evidence; and
+- proof that networking and login did not change target write counters.
+
+## Current-generation boundary
+
+The separate-kernel-and-initrd PXE generation used for read-only inventory is not
+a signed destructive installer. Adding the network console improves control and
+evidence collection, but does not authorise a target write.
+
+The current generation may therefore be rewritten as an assisted read-only
+inventory image using the official Debian kernel, a merged storage-capable
+initramfs, a locally served Debian network-console component set, and a
+hash-pinned Acer client key. It must retain a non-destructive default and an
+unlimited menu timeout.
 
 ## Failure policy
 
-If the wired link, SSH service, key authentication, terminal, or transcript
-capture is unavailable, stop at the current non-destructive gate. Repair and
-rebuild the signed generation rather than asking the operator to manually type a
-large destructive sequence at the A720 console.
+If wired networking, local package delivery, SSH startup, key authentication,
+host-key verification, terminal behaviour, file transfer, transcript capture, or
+write-counter evidence fails, stop at the current non-destructive gate.
 
-Network assistance is a human-error control. It must remain available without
-turning the installer into a generally reachable network service.
+Repair and rebuild the generation from the Acer. Do not compensate by asking the
+operator to perform a large manual command sequence on the A720.
