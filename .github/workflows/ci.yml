@@ -87,4 +87,52 @@ jobs:
         run: |
           set -euo pipefail
           empty_tree=$(git hash-object -t tree /dev/null)
-          git diff --check "$empty_tree" HEAD
+
+          # Git treats Markdown's valid two-space hard line break as ordinary
+          # trailing whitespace. Keep the strict native check for every other
+          # tracked file, then validate Markdown with that one narrow exception.
+          git diff --check "$empty_tree" HEAD -- \
+            . \
+            ':(exclude,glob)**/*.md' \
+            ':(exclude,glob)*.md'
+
+          python3 - <<'PYTHON'
+          from pathlib import Path
+          import subprocess
+          import sys
+
+          raw_paths = subprocess.check_output(
+              ["git", "ls-files", "-z", "*.md"],
+          )
+          failed = False
+
+          for raw_path in raw_paths.split(b"\0"):
+              if not raw_path:
+                  continue
+
+              path = Path(raw_path.decode("utf-8", "surrogateescape"))
+
+              for number, raw_line in enumerate(path.read_bytes().splitlines(), 1):
+                  line = raw_line.rstrip(b"\r")
+                  stripped = line.rstrip(b" \t")
+                  suffix = line[len(stripped):]
+
+                  if suffix == b"  " and stripped:
+                      continue
+
+                  if suffix:
+                      printable = suffix.replace(b"\t", b"\\t").decode("ascii")
+                      print(
+                          f"{path}:{number}: invalid trailing whitespace: "
+                          f"{printable!r}",
+                          file=sys.stderr,
+                      )
+                      failed = True
+
+                  if line.startswith((b"<<<<<<<", b"=======", b">>>>>>>")):
+                      print(f"{path}:{number}: conflict marker", file=sys.stderr)
+                      failed = True
+
+          if failed:
+              raise SystemExit(1)
+          PYTHON
