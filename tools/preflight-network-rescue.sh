@@ -9,11 +9,15 @@ umask 077
 PROG=${0##*/}
 FAILURES=0
 WARNINGS=0
+BASELINE_WRITE_OPS=''
+BASELINE_WRITE_SECTORS=''
 
 usage()
 {
     cat <<USAGE
 Usage:
+  $PROG runtime
+
   $PROG fingerprint --target DEVICE
 
   $PROG rescue --target DEVICE --expected-fingerprint SHA256
@@ -30,6 +34,13 @@ fatal() { printf 'ERROR: %s\n' "$*" >&2; exit 2; }
 section() { printf '\n=== %s ===\n' "$*"; }
 have() { command -v "$1" >/dev/null 2>&1; }
 
+required_commands()
+{
+    printf '%s\n' \
+        bash awk blockdev cat date findmnt grep id ip lsblk readlink sed \
+        sha256sum sleep swapon tee udevadm uname
+}
+
 is_sha256()
 {
     [ "${#1}" -eq 64 ] || return 1
@@ -39,10 +50,45 @@ is_sha256()
 need_commands()
 {
     local command_name
-    for command_name in awk blockdev cat date findmnt grep id ip lsblk \
-        readlink sed sha256sum sleep swapon tee udevadm uname; do
+
+    while IFS= read -r command_name; do
         have "$command_name" || fatal "missing required command: $command_name"
-    done
+    done < <(required_commands)
+}
+
+report_runtime()
+{
+    local command_name path hash
+
+    section 'Network-rescue runtime contract'
+    printf 'bash version: %s\n' "$BASH_VERSION"
+    printf 'kernel:       %s\n' "$(uname -r 2>/dev/null || printf unknown)"
+
+    while IFS= read -r command_name; do
+        path=$(command -v "$command_name" 2>/dev/null || true)
+
+        if [ -z "$path" ]; then
+            fail "missing required command: $command_name"
+            continue
+        fi
+
+        printf 'present: %-12s %s\n' "$command_name" "$path"
+
+        case "$path" in
+            /*)
+                if [ -f "$path" ] && have sha256sum; then
+                    hash=$(sha256sum -- "$path" 2>/dev/null | awk '{ print $1 }')
+                    [ -n "$hash" ] && printf 'sha256: %-13s %s\n' "$command_name" "$hash"
+                fi
+                ;;
+        esac
+    done < <(required_commands)
+
+    if [ "$FAILURES" -eq 0 ]; then
+        pass 'runtime contract is complete'
+    else
+        printf 'STOP: do not treat this environment as authoritative.\n' >&2
+    fi
 }
 
 resolve_disk()
@@ -235,6 +281,44 @@ check_network()
     [ "$carrier" -eq 1 ] && pass 'a non-loopback interface has carrier' || fail 'no network carrier detected'
 }
 
+check_target_read_only()
+{
+    local node read_only start_failures=$FAILURES
+
+    while IFS= read -r node; do
+        [ -n "$node" ] || continue
+        read_only=$(blockdev --getro "$node" 2>/dev/null || printf unknown)
+
+        if [ "$read_only" = 1 ]; then
+            pass "kernel marks target node read-only: $node"
+        else
+            fail "target node is not kernel read-only: $node (state=$read_only)"
+        fi
+    done < <(lsblk -nrpo PATH -- "$TARGET")
+
+    [ "$FAILURES" -eq "$start_failures" ] ||
+        printf 'STOP CONDITION: target immutability is not enforced.\n' >&2
+}
+
+check_target_holders()
+{
+    local node name holder holder_name start_failures=$FAILURES
+
+    while IFS= read -r node; do
+        [ -n "$node" ] || continue
+        name=${node##*/}
+
+        for holder in "/sys/class/block/$name/holders/"*; do
+            [ -e "$holder" ] || continue
+            holder_name=${holder##*/}
+            fail "target-backed node has an active holder: $node -> /dev/$holder_name"
+        done
+    done < <(lsblk -nrpo PATH -- "$TARGET")
+
+    [ "$FAILURES" -eq "$start_failures" ] &&
+        pass 'target disk and partitions have no active block-device holders'
+}
+
 check_target_unused()
 {
     local source mountpoint fstype options swap start_failures=$FAILURES
@@ -254,12 +338,45 @@ check_target_unused()
         [ -n "$swap" ] && uses_target "$swap" && fail "target-backed swap is active: $swap"
     done < <(swapon --show=NAME --noheadings 2>/dev/null)
 
-    [ "$FAILURES" -eq "$start_failures" ] && pass 'target disk has no mounted filesystems or active swap'
+    check_target_holders
+
+    [ "$FAILURES" -eq "$start_failures" ] &&
+        pass 'target disk has no mounted filesystems, active swap, or holders'
 }
 
 write_counters()
 {
     awk '{ print $5, $7 }' "/sys/class/block/${TARGET##*/}/stat"
+}
+
+capture_write_baseline()
+{
+    read -r BASELINE_WRITE_OPS BASELINE_WRITE_SECTORS < <(write_counters) ||
+        fatal 'cannot read initial target write counters'
+
+    [[ "$BASELINE_WRITE_OPS" =~ ^[0-9]+$ ]] || fatal 'invalid initial write-operation counter'
+    [[ "$BASELINE_WRITE_SECTORS" =~ ^[0-9]+$ ]] || fatal 'invalid initial sector-write counter'
+}
+
+assert_no_writes_since_baseline()
+{
+    local label=$1 current_ops current_sectors delta_ops delta_sectors
+
+    read -r current_ops current_sectors < <(write_counters) || {
+        fail "cannot read target write counters: $label"
+        return
+    }
+
+    delta_ops=$((current_ops - BASELINE_WRITE_OPS))
+    delta_sectors=$((current_sectors - BASELINE_WRITE_SECTORS))
+    printf 'cumulative write operations delta (%s): %s\n' "$label" "$delta_ops"
+    printf 'cumulative sectors written delta (%s): %s\n' "$label" "$delta_sectors"
+
+    if [ "$delta_ops" -eq 0 ] && [ "$delta_sectors" -eq 0 ]; then
+        pass "target recorded no writes since preflight baseline: $label"
+    else
+        fail "target write counters changed since preflight baseline: $label"
+    fi
 }
 
 observe_writes()
@@ -285,7 +402,11 @@ value_required()
 }
 
 MODE=${1:-}
-case "$MODE" in -h|--help|'') usage; exit 0 ;; fingerprint|rescue) shift ;; *) usage; fatal "unknown mode: $MODE" ;; esac
+case "$MODE" in
+    -h|--help|'') usage; exit 0 ;;
+    runtime|fingerprint|rescue) shift ;;
+    *) usage; fatal "unknown mode: $MODE" ;;
+esac
 
 TARGET_INPUT=''
 EXPECTED_FINGERPRINT=''
@@ -313,12 +434,19 @@ while [ "$#" -gt 0 ]; do
     esac
 done
 
+if [ "$MODE" = runtime ]; then
+    [ "$#" -eq 0 ] || fatal 'runtime mode accepts no arguments'
+    report_runtime
+    [ "$FAILURES" -eq 0 ] && exit 0
+    exit 1
+fi
+
 need_commands
 [ -n "$TARGET_INPUT" ] || fatal '--target is required'
 TARGET=$(resolve_disk "$TARGET_INPUT")
-ACTUAL_FINGERPRINT=$(fingerprint "$TARGET") || fatal 'stable WWN or serial identity is unavailable'
 
 if [ "$MODE" = fingerprint ]; then
+    ACTUAL_FINGERPRINT=$(fingerprint "$TARGET") || fatal 'stable WWN or serial identity is unavailable'
     public_disk_info "$TARGET"
     printf 'identity SHA-256: %s\n' "$ACTUAL_FINGERPRINT"
     exit 0
@@ -334,9 +462,15 @@ is_sha256 "$EXPECTED_MANIFEST" || fatal 'invalid --expected-manifest-sha256'
 [[ "$OBSERVE_SECONDS" =~ ^[0-9]+$ ]] || fatal 'observation time must be an integer'
 [ "$OBSERVE_SECONDS" -ge 1 ] && [ "$OBSERVE_SECONDS" -le 300 ] || fatal 'observation time must be 1-300 seconds'
 
+capture_write_baseline
+ACTUAL_FINGERPRINT=$(fingerprint "$TARGET") || fatal 'stable WWN or serial identity is unavailable'
 setup_report "$REPORT_INPUT"
 printf 'Darkstar network-rescue preflight\nStarted: %s\nMode: READ ONLY\nReport: %s\n' \
     "$(date --iso-8601=seconds 2>/dev/null || date)" "$REPORT"
+
+section 'Target immutability guard'
+check_target_read_only
+assert_no_writes_since_baseline 'initial identity and report setup'
 
 section 'Rescue environment'
 uname -a
@@ -349,23 +483,26 @@ check_network
 
 section 'Pinned generation'
 check_generation
+assert_no_writes_since_baseline 'generation and artifact validation'
 
 section 'Target identity'
 public_disk_info "$TARGET"
 printf 'expected identity SHA-256: %s\n' "$EXPECTED_FINGERPRINT"
 printf 'actual identity SHA-256:   %s\n' "$ACTUAL_FINGERPRINT"
 [ "$ACTUAL_FINGERPRINT" = "$EXPECTED_FINGERPRINT" ] && pass 'target identity matches' || fail 'target identity mismatch'
-[ "$(blockdev --getro "$TARGET")" = 1 ] && pass 'kernel marks target read-only' || warn 'target is not kernel-enforced read-only'
+assert_no_writes_since_baseline 'target identity validation'
 
 section 'Target usage'
 check_target_unused
+assert_no_writes_since_baseline 'mount, swap, and holder validation'
 
 section 'Write observation'
 observe_writes
+assert_no_writes_since_baseline 'complete preflight'
 
 section 'Result'
 printf 'Failures: %s\nWarnings: %s\nReport: %s\n' "$FAILURES" "$WARNINGS" "$REPORT"
-printf '%s\n' 'This proves only the inspected generation, target identity, current mount/swap state, and the measured no-write interval.'
+printf '%s\n' 'This proves only the inspected generation, target identity, current read-only state, current mount/swap/holder state, and the measured write-counter intervals.'
 
 [ "$FAILURES" -eq 0 ] && { pass 'network-rescue preflight passed'; exit 0; }
 printf 'STOP: do not repartition, format, restore, or install.\n' >&2
