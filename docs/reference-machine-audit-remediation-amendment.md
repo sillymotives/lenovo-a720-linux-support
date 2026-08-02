@@ -4,7 +4,7 @@ Status date: 2026-08-02
 
 This amendment applies the implementable findings from the first-party,
 ISO/IEC 27007-aligned audit of the A720 rebuild plan. It supplements the network,
-partition, authenticated-boot, and recovery documents.
+partition, authenticated-boot, assisted-networking, and recovery documents.
 
 The current storage-capable PXE generation remains authorised only for read-only
 inventory. Nothing in this amendment authorises partitioning, formatting, LUKS
@@ -35,6 +35,14 @@ The provisioning-host inventory can now inspect, when explicitly supplied:
 - pinned-generation ownership, permissions, and manifest status; and
 - the count of active DHCP lease records without printing client identifiers.
 
+Authenticated remote assistance is now a mandatory human-error control. The
+future signed rescue and installer environments must provide an isolated wired,
+public-key-only SSH channel from the Acer, with no target default route, DNS,
+Wi-Fi, forwarding, password authentication, or general internet dependency.
+The reviewed Acer helper pins host keys per generation and refuses password or
+keyboard-interactive fallback. Loss of the assistance channel stops the gate
+instead of forcing long manual command entry at the A720 console.
+
 ## Governance controls
 
 The following documents are authoritative for the corresponding audit findings:
@@ -44,7 +52,10 @@ The following documents are authoritative for the corresponding audit findings:
   retention, and the typed destructive challenge;
 - `reference-machine-build-signing-lifecycle.md` defines key generation, storage,
   inventory, build provenance, signing ceremonies, SBAT, rotation, revocation,
-  and retirement; and
+  and retirement;
+- `reference-machine-assisted-networking-amendment.md` defines the isolated
+  assistance topology, SSH policy, privilege boundary, operator workflow, and
+  connection evidence; and
 - `reference-machine-security-incident-response.md` defines containment,
   investigation, recovery, key-compromise response, evidence capture, and
   closure.
@@ -61,6 +72,12 @@ pass inside the exact physically booted signed environment. A successful CI run
 on a generic runner proves the script contract and syntax, not the contents of
 the future installer UKI.
 
+Before the remote assistance channel becomes authoritative, physical evidence
+must prove its wired address, absence of a default route, listener binding,
+key-only authentication, generation-specific host-key pinning, interactive
+terminal operation, transcript capture, and zero target-disk writes caused by
+networking or login.
+
 Before destructive work, evidence must also prove:
 
 1. target whole-disk and partition read-only state;
@@ -71,8 +88,9 @@ Before destructive work, evidence must also prove:
 6. signed destructive-installer UKI identity and embedded command line;
 7. protected-media absence and expected whole-disk inventory;
 8. recovery artifact readability and independent copies;
-9. signing-key lifecycle readiness; and
-10. successful typed challenge derived from both disk and generation identity.
+9. signing-key lifecycle readiness;
+10. successful isolated remote-assistance proof; and
+11. successful typed challenge derived from both disk and generation identity.
 
 ## Audit finding disposition
 
@@ -81,6 +99,7 @@ Before destructive work, evidence must also prove:
 | Constrained auditor independence | Accepted limitation with mandatory compensating controls; not represented as independent certification. |
 | Writable target could pass preflight | Corrected in code and protected by CI; physical retest required. |
 | Runtime dependencies not proven in installer | Runtime-contract mode implemented; exact signed-environment proof remains open. |
+| Operator error from manual command transcription | Isolated authenticated assistance policy and client implemented; signed-environment server and physical proof remain open. |
 | Signing-key lifecycle incomplete | Policy implemented; production ceremony and private evidence remain open. |
 | Evidence custody and retention incomplete | Audit plan implemented; first physical gate bundle remains open. |
 | PXE service hardening evidence incomplete | Host inventory extended; service-specific evidence remains open. |
