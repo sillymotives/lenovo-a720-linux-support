@@ -9,6 +9,11 @@
 set -eu
 export LC_ALL=C
 
+PXE_SERVICE=${PXE_SERVICE:-}
+PXE_GENERATION_ROOT=${PXE_GENERATION_ROOT:-}
+PXE_LEASE_FILE=${PXE_LEASE_FILE:-}
+EXPECTED_PXE_CLIENTS=${EXPECTED_PXE_CLIENTS:-1}
+
 section()
 {
     printf '\n=== %s ===\n' "$1"
@@ -115,6 +120,98 @@ do
             "$unit" "$(systemctl is-active "$unit" 2>/dev/null || true)"
     fi
 done
+
+section 'Selected PXE service hardening'
+if [ -n "$PXE_SERVICE" ] && have systemctl; then
+    printf 'service=%s\n' "$PXE_SERVICE"
+    systemctl show "$PXE_SERVICE" \
+        -p FragmentPath \
+        -p DropInPaths \
+        -p User \
+        -p Group \
+        -p DynamicUser \
+        -p UMask \
+        -p NoNewPrivileges \
+        -p PrivateTmp \
+        -p ProtectSystem \
+        -p ProtectHome \
+        -p ProtectKernelTunables \
+        -p ProtectKernelModules \
+        -p ProtectControlGroups \
+        -p RestrictAddressFamilies \
+        -p RestrictNamespaces \
+        -p LockPersonality \
+        -p MemoryDenyWriteExecute \
+        -p CapabilityBoundingSet \
+        -p AmbientCapabilities \
+        -p SystemCallArchitectures \
+        -p SystemCallFilter \
+        -p ReadOnlyPaths \
+        -p ReadWritePaths \
+        -p IPAddressDeny \
+        -p IPAddressAllow 2>/dev/null ||
+        echo '[selected service is unavailable]'
+
+    fragment=$(systemctl show "$PXE_SERVICE" -p FragmentPath --value 2>/dev/null || true)
+    if [ -n "$fragment" ] && [ -r "$fragment" ] && have sha256sum; then
+        sha256sum "$fragment"
+    fi
+else
+    echo 'Set PXE_SERVICE to inspect one service unit without changing it.'
+fi
+
+section 'Pinned generation permissions'
+if [ -n "$PXE_GENERATION_ROOT" ] && [ -d "$PXE_GENERATION_ROOT" ]; then
+    resolved_generation=$(readlink -f "$PXE_GENERATION_ROOT" 2>/dev/null || true)
+    printf 'generation_root=%s\n' "${resolved_generation:-unresolved}"
+
+    if have stat; then
+        stat -c 'mode=%a owner=%U:%G type=%F path=%n' "$PXE_GENERATION_ROOT" 2>/dev/null || true
+    fi
+
+    if have find; then
+        writable_count=$(
+            find "$PXE_GENERATION_ROOT" -xdev \
+                \( -type f -o -type d \) -perm /022 -print 2>/dev/null |
+            awk 'END { print NR + 0 }'
+        )
+        printf 'group_or_other_writable_members=%s\n' "$writable_count"
+    fi
+
+    if [ -r "$PXE_GENERATION_ROOT/SHA256SUMS" ] && have sha256sum; then
+        sha256sum "$PXE_GENERATION_ROOT/SHA256SUMS"
+
+        if (
+            cd "$PXE_GENERATION_ROOT" &&
+            sha256sum -c SHA256SUMS >/dev/null 2>&1
+        ); then
+            echo 'generation_manifest_status=verified'
+        else
+            echo 'generation_manifest_status=review-required'
+        fi
+    fi
+else
+    echo 'Set PXE_GENERATION_ROOT to inspect a pinned generation directory.'
+fi
+
+section 'Active PXE lease count without client identifiers'
+if [ -n "$PXE_LEASE_FILE" ] && [ -r "$PXE_LEASE_FILE" ]; then
+    now=$(date +%s)
+    active_clients=$(
+        awk -v now="$now" '$1 ~ /^[0-9]+$/ && $1 >= now { count++ } END { print count + 0 }' \
+            "$PXE_LEASE_FILE"
+    )
+    printf 'active_lease_records=%s\n' "$active_clients"
+    printf 'expected_active_clients=%s\n' "$EXPECTED_PXE_CLIENTS"
+
+    if [ "$active_clients" -eq "$EXPECTED_PXE_CLIENTS" ] 2>/dev/null; then
+        echo 'lease_count_status=expected'
+    else
+        echo 'lease_count_status=review-required'
+    fi
+else
+    echo 'Set PXE_LEASE_FILE to count active leases without printing identifiers.'
+fi
 
 section 'Network-boot commands and packages'
 for command_name in \
