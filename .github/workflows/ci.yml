@@ -38,6 +38,25 @@ jobs:
               -print0
           )
 
+      - name: Validate network-rescue safety contract
+        shell: bash
+        run: |
+          set -euo pipefail
+
+          script=tools/preflight-network-rescue.sh
+          bash "$script" runtime
+
+          grep -Fq 'check_target_read_only' "$script"
+          grep -Fq 'check_target_holders' "$script"
+          grep -Fq 'capture_write_baseline' "$script"
+          grep -Fq 'assert_no_writes_since_baseline' "$script"
+          grep -Fq 'STOP CONDITION: target immutability is not enforced.' "$script"
+
+          if grep -Fq "warn 'target is not kernel-enforced read-only'" "$script"; then
+            echo 'target read-only failure was weakened to a warning' >&2
+            exit 1
+          fi
+
       - name: Validate Python syntax
         shell: bash
         run: |
