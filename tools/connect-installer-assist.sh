@@ -2,7 +2,8 @@
 # SPDX-License-Identifier: MIT
 #
 # Open the generation-pinned SSH assistance channel to a signed A720 rescue or
-# installer environment. This helper never disables host-key checking and never
+# installer environment. Debian Installer network-console normally uses the
+# `installer` account. This helper never disables host-key checking and never
 # falls back to password authentication.
 
 export LC_ALL=C
@@ -18,6 +19,7 @@ Usage:
       [--user USER] [--port PORT] [--known-hosts-directory DIRECTORY]
       [-- REMOTE_COMMAND [ARGUMENT ...]]
 
+The default remote user is `installer` for Debian Installer network-console.
 The first connection pins the target host key into a generation-specific file.
 A changed key for the same generation is rejected by SSH.
 USAGE
@@ -42,7 +44,7 @@ value_required()
 HOST=''
 IDENTITY=''
 GENERATION=''
-REMOTE_USER='root'
+REMOTE_USER='installer'
 PORT='22'
 KNOWN_HOSTS_DIRECTORY=${XDG_STATE_HOME:-${HOME:-}/.local/state}/darkstar-installer
 
