@@ -57,6 +57,28 @@ jobs:
             exit 1
           fi
 
+      - name: Validate installer assistance client
+        shell: bash
+        run: |
+          set -euo pipefail
+
+          script=tools/connect-installer-assist.sh
+          sh "$script" --help >/dev/null
+
+          grep -Fq 'StrictHostKeyChecking=accept-new' "$script"
+          grep -Fq 'PasswordAuthentication=no' "$script"
+          grep -Fq 'KbdInteractiveAuthentication=no' "$script"
+          grep -Fq 'ClearAllForwardings=yes' "$script"
+          grep -Fq 'UserKnownHostsFile="$KNOWN_HOSTS"' "$script"
+
+          if grep -Eq \
+            'StrictHostKeyChecking=(no|off)|PasswordAuthentication=yes|UserKnownHostsFile=/dev/null' \
+            "$script"
+          then
+            echo 'installer assistance client weakens host or user authentication' >&2
+            exit 1
+          fi
+
       - name: Validate Python syntax
         shell: bash
         run: |
