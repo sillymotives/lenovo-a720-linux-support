@@ -1,52 +1,155 @@
-# Reference machine: network-boot recovery amendment
+# Reference machine: network-provisioned encrypted rebuild amendment
 
 Status date: 2026-08-02
 
-This amendment supersedes the removable-media recovery and offline-live-boot
-parts of `reference-machine-secureboot-hibernation-recovery-plan.md`.
-The final machine goals remain unchanged:
+This amendment supersedes the removable-media recovery, in-place filesystem
+shrink, and swap-partition repair stages in
+`reference-machine-secureboot-hibernation-recovery-plan.md`.
+
+The A720 will be rebuilt from bare metal over the wired network. The required
+outcome is deliberately strict:
 
 1. the Darkstar graphical standalone GRUB path ("prettyboot");
-2. UEFI Secure Boot with a verifiable signed loader and kernel chain; and
-3. reliable suspend-to-disk hibernation.
+2. UEFI Secure Boot with a verifiable signed loader, kernel, and early-userspace
+   chain;
+3. encrypted system storage with a dedicated encrypted 20 GiB swap area; and
+4. reliable suspend-to-disk hibernation.
 
-The storage repair and recovery environment will now be delivered over the
-local network instead of from a bootable USB device. The Kingston DataTraveler
-remains protected backup media and is not part of the boot chain.
+A result that silently trades away one of these requirements is incomplete.
 
-## Why the plan changed
+## Machines and roles
 
-A network-delivered rescue environment is easier to reproduce, inspect, and
-replace without rewriting removable media. It also separates three roles that
-must not be confused:
+### Target: Lenovo IdeaCentre A720
 
-- the A720 is the repair target;
-- a separate trusted machine provides boot and recovery assets; and
-- the Kingston device remains an offline or selectively attached backup source.
+- Debian 13 remains the intended operating-system family.
+- Network boot has been deliberately enabled in firmware.
+- The internal disk may be erased and repartitioned only after the read-only
+  network-boot and recovery gates pass.
+- The modified firmware splash resides on the motherboard and is independent of
+  the disk rebuild.
+- The current installation remains evidence and a fallback source until the
+  destructive installation gate is explicitly crossed.
 
-This amendment does not assume that the A720 firmware network path is already
-proven. Firmware PXE or UEFI HTTP/iPXE compatibility is an acceptance gate, not
-a fact inferred from the presence of an Ethernet controller.
+### Provisioning host: Acer Aspire E1-530
 
-## Trust boundary
+- The Acer is the PXE and installation-services host.
+- It serves a controlled installer and recovery environment over the wired
+  network.
+- It is persistent infrastructure, not a disposable staging box.
+- Changes to its working desktop, boot path, networking, and services must be
+  measured, documented, and reversible.
+- Private addresses, interface names, DHCP details, credentials, and
+  machine-local paths do not belong in this public repository.
 
-The network-boot server must be a separate trusted machine on the local wired
-network. Its private addresses, interface names, DHCP configuration, MAC
-addresses, credentials, and machine-local paths do not belong in the public
-repository.
+### Protected backup device
 
-The server may provide the first-stage network loader by the mechanism supported
-by the A720 firmware, then deliver the selected kernel, initramfs, and optional
-root filesystem over the local network. The repository may document the shape
-of that chain, but must not commit private recovery archives, signed EFI
-binaries, private keys, certificates containing private deployment details, or
-machine identifiers.
+The Kingston DataTraveler containing ReaR backups is recovery infrastructure,
+not installation media.
 
-Every boot artifact must have a recorded SHA-256 digest. The manifest must be
-stored separately from the generated images and checked both on the server and
-from the booted rescue environment. A detached signature may be added later,
-but a signature does not replace checking that the correct machine, disk, boot
-entry, and recovery generation were selected.
+- Do not repartition it.
+- Do not format it.
+- Do not use it as network-boot workspace.
+- Do not use it for bootloader experiments.
+- Do not assume it occupies `/dev/sdb` or any other fixed device node.
+- Keep it physically disconnected while the installer partitions the A720
+  internal disk.
+- Attach it only when recovery material is deliberately being read.
+
+## Proven state before the rebuild
+
+The following results were physically demonstrated before choosing the clean
+network rebuild:
+
+- 16 GiB of physical RAM was installed and detected correctly;
+- the Darkstar firmware splash survived disk-side bootloader experiments;
+- the standalone Prettyboot path rendered its ignition-ring theme during a
+  one-shot boot;
+- Debian booted through the stock signed shim path as a fallback;
+- the machine hibernated to a 20 GiB swapfile and resumed with the same kernel
+  boot ID; and
+- the A720 platform driver, bezel-volume bridge, audio path, graphics work,
+  Plymouth transition, and related machine-specific fixes had working
+  implementations or recovery notes.
+
+The old swapfile proves that the hardware and resume path can work. It is not the
+intended final storage architecture.
+
+## Target storage and boot architecture
+
+The preferred clean design is:
+
+```text
+A720 firmware with Secure Boot enabled
+  -> signed shim
+  -> signed Prettyboot loader
+  -> signed stock Debian fallback or signed Darkstar UKI
+
+internal disk
+  -> EFI System Partition
+  -> LUKS2 encrypted container
+       -> encrypted root filesystem
+       -> dedicated 20 GiB swap area
+```
+
+The exact LVM or direct-partition arrangement remains an implementation choice
+until installer and initramfs behavior are tested.
+
+The dependable unlock baseline is a manually entered LUKS passphrase. Any
+hardware-assisted unlock is optional and secondary, and must retain a tested
+recovery passphrase.
+
+The trusted unlock prompt should live inside a signed Unified Kernel Image or an
+equivalently authenticated early-boot environment. The stock Debian path must
+remain available beside the custom path.
+
+## Secure Boot and hibernation boundary
+
+Stock Linux lockdown blocks hibernation under Secure Boot because an
+unauthenticated hibernation image can re-enter kernel memory after the signed
+boot chain has been verified.
+
+Encrypted swap protects confidentiality, but ordinary sector encryption alone
+does not prove freshness or cryptographic integrity of every resumed block. The
+final design therefore requires an explicit threat-model review rather than the
+assumption that encrypted swap resolves the entire policy conflict.
+
+The candidate engineering route is a narrowly modified, owner-signed kernel or
+UKI that:
+
+- retains Secure Boot authentication;
+- retains mandatory signed-module enforcement;
+- retains lockdown protections unrelated to the chosen hibernation exception;
+- resumes only after the encrypted storage mapping is activated by trusted early
+  userspace; and
+- installs alongside, not over, a stock Debian fallback kernel.
+
+This is a deliberate security-policy choice, not merely a storage-layout change
+or a single kernel toggle.
+
+## Recovery material
+
+Private recovery material exists outside Git:
+
+- the original Linux installation material;
+- a ReaR rescue ISO;
+- the matching ReaR backup archive;
+- copies of EFI System Partition contents, including the known-good Prettyboot
+  payload; and
+- local rollback and maintenance notes.
+
+The rescue ISO has passed local checksum and structural inspection. It contains
+both legacy and UEFI boot paths, signed EFI components, and an interactive rescue
+environment. The separate backup archive is not embedded in the ISO.
+
+The ReaR environment is a parachute, not the preferred installer. Its automatic
+recovery path is destructive and would reproduce the captured storage layout,
+not create the new encrypted architecture. It must never be the default PXE menu
+entry.
+
+The backup archive and original installation material must still be hash-checked
+and test-read before the A720 disk is erased. No recovery image, archive, private
+key, certificate, signed deployment binary, filesystem UUID, MAC address,
+network address, or backup content belongs in this repository.
 
 ## Required network-boot behavior
 
@@ -54,187 +157,195 @@ The default network entry must be non-destructive. Merely selecting network boot
 must never:
 
 - start `rear recover` or another restore workflow;
+- repartition or format the internal disk;
 - mount the internal root filesystem read-write;
-- activate, reformat, or repartition the Kingston device;
+- attach, activate, reformat, or repartition the Kingston device;
 - alter the EFI System Partition;
 - change EFI variables or the permanent boot order;
-- run filesystem repair or partitioning tools automatically; or
+- run filesystem repair automatically; or
 - accept an unattended destructive timeout choice.
 
-The first menu entry must be a read-only inspection environment. Any later
-repair entry must require explicit operator selection and must stop at a shell or
-an equivalent confirmation boundary before disk-changing commands are issued.
+The first entry must be a read-only inspection environment. Installer and
+recovery entries must require explicit operator selection and stop at a clear
+confirmation boundary before issuing disk-changing commands.
 
-## Network-boot server preparation
+Every served generation must be pinned and versioned. Every boot artifact must
+have a recorded SHA-256 digest in a separate manifest that is checked on the Acer
+and again from the booted environment.
 
-Before the A720 attempts a network boot:
+## Provisioning-host preparation
 
-- place the selected rescue kernel, initramfs, and any root image in a dedicated
-  versioned directory on the trusted server;
-- create a SHA-256 manifest covering every delivered boot artifact;
-- record the source and build date of the rescue environment;
-- keep an immediately previous known-good generation available;
-- configure a machine-specific or manually selected boot entry without
-  publishing the A720 MAC address in this repository;
-- ensure the default menu path is the read-only inspection environment;
+Before the A720 attempts network boot:
+
+- inventory the Acer's operating system, firmware mode, storage capacity,
+  network interfaces, routes, DHCP context, listening ports, firewall posture,
+  PXE-related packages, and potentially conflicting services;
+- do not print or commit hardware addresses in the public report;
+- choose the physical topology deliberately: shared router or switch, or direct
+  Ethernet;
+- determine whether router DHCP can be configured before choosing DHCP,
+  proxy-DHCP, or an isolated direct-link design;
+- place installer and rescue artifacts in dedicated versioned directories;
+- create and verify manifests for every delivered artifact;
+- keep the immediately previous known-good generation available;
+- ensure the default entry is read-only;
 - disable automatic restore, automatic partitioning, and writable automounts;
-- verify the server is not exporting private backup material anonymously; and
-- test the same boot entry in an expendable virtual machine where practical.
+- verify that private backup material is not exported anonymously; and
+- keep all Acer configuration changes reversible.
 
-DHCP, proxy-DHCP, TFTP, HTTP, NFS, and iPXE are implementation choices rather
-than requirements of this public plan. Use only the minimum services needed for
-the firmware and selected rescue environment. Prefer transferring larger
-artifacts over HTTP or another checksummed transport after the smallest viable
-first stage has loaded.
-
-## Recovery data position
-
-The owner retains:
-
-- the original Linux installation files from the machine's first Debian setup;
-- a current ReaR recovery image and checksum information; and
-- a file-level ReaR backup that includes the root filesystem and EFI System
-  Partition contents.
-
-Those artifacts remain private. They may be copied to or exposed through the
-trusted recovery server only when access is restricted to the maintenance
-network and the exact archive digest has been verified. The network-boot menu
-must not contain credentials or embed a writable recovery share.
-
-The Kingston DataTraveler containing ReaR backups remains protected media. It
-must not be reformatted, repartitioned, used as a bootloader target, used as
-network-boot workspace, or assumed to be `/dev/sdb`. Device identity must be
-proven from stable properties before it is mounted, and mounting is not part of
-the initial network-boot smoke test.
+TFTP, HTTP, iPXE, PXELINUX, GRUB network boot, NFS, and proxy-DHCP are
+implementation choices. Use the smallest service set that satisfies the A720
+firmware and selected installer. Prefer a minimal first stage followed by
+checksummed transfer of larger artifacts over HTTP where practical.
 
 ## Effect on the current preflight tool
 
-`tools/preflight-secureboot-hibernation.sh` was written for local ISO and archive
-paths plus a removable-media recovery boot. It is retained in the draft for
-review history, but it is not the authoritative Gate 1A tool under this amended
-plan.
+`tools/preflight-secureboot-hibernation.sh` was written for the abandoned
+in-place repair plan. It remains in the draft as review history, but it is not
+authoritative for the clean network rebuild.
 
-Before use, it must be refactored so that:
+Before physical use, the checks must be separated into at least two roles:
 
-- network boot artifacts and their manifest can be checked from a staged local
-  copy or a read-only network source;
-- the selected server generation is recorded in the private report;
-- `/dev/sdb` is never treated as proof of Kingston identity;
-- protected-device absence is acceptable during the first smoke test;
-- the script distinguishes installed-system preflight from rescue-environment
-  preflight; and
-- no network share is mounted read-write by the script.
+1. an Acer provisioning-host inventory and artifact-manifest gate; and
+2. an A720 target/rescue preflight that proves boot-generation identity, target
+   disk identity, protected-device absence, and non-destructive behavior.
 
-Until that refactor is reviewed and CI passes, the current script is diagnostic
-material only and must not be used to authorize repartitioning.
+The existing script must not authorize repartitioning. Its assumptions about the
+old root filesystem, old swap partition, local ISO paths, archive paths, and
+`/dev/sdb` are obsolete under this amendment.
 
 ## Revised execution gates
 
-Do not proceed to the next gate until the current gate has evidence attached to
-the private maintenance log.
+Do not proceed to the next gate until evidence for the current gate is attached
+to the private maintenance log.
 
-### Gate 0: server-side artifact gate
+### Gate 0: private artifact verification
 
-- identify the exact rescue-environment generation;
-- verify all boot-artifact SHA-256 values against the separate manifest;
-- inspect the network menu and prove the default entry is non-destructive;
-- confirm no private key or credential is embedded in a served file;
-- confirm the previous known-good generation remains available; and
-- capture the server configuration needed to reconstruct the service privately.
+- verify the selected Debian installer artifacts and their source;
+- verify the ReaR ISO against its separate checksum manifest;
+- verify the complete backup archive digest and readability;
+- verify the original installation material;
+- preserve the known-good Prettyboot and EFI recovery copies; and
+- record the exact artifact generations without publishing private identifiers.
 
-### Gate 1A: installed-system read-only preflight
+### Gate 1A: Acer provisioning-host inventory
 
-- verify the internal disk, EFI System Partition, root filesystem, current swap,
-  resume configuration, prettyboot payload, Secure Boot state, and lockdown
-  state from the installed Debian system;
-- record the intended network-boot generation and its manifest digest;
-- confirm the wired interface is available without changing the permanent boot
-  order;
-- do not require the Kingston device to be attached; and
-- obtain zero mandatory failures from the revised preflight tool.
+- run the read-only host inventory before installing or starting PXE services;
+- record wired interfaces, routes, DHCP context, storage capacity, relevant
+  packages, ports, firewall posture, and conflicting services;
+- choose the physical network topology;
+- preserve the Acer's existing working configuration; and
+- approve a reversible service design before changing networking.
 
-### Gate 1B: network-boot smoke test
+### Gate 1B: server-side boot-generation gate
 
-- select network boot through the firmware's one-shot mechanism or temporary
-  boot menu rather than changing the permanent order;
+- stage a versioned read-only inspection generation;
+- verify all artifact hashes against the separate manifest;
+- inspect the boot menu and prove the default entry is non-destructive;
+- confirm that no secret or credential is embedded in a served file;
+- confirm that private backup material is not anonymously exported; and
+- retain the previous known-good generation.
+
+### Gate 1C: A720 read-only network-boot proof
+
+- keep the Kingston device detached;
+- select network boot through the firmware's temporary boot menu;
 - boot the read-only inspection entry;
 - confirm keyboard, display, wired networking, and rescue shell operation;
-- verify the delivered kernel and initramfs hashes or generation identity;
-- identify the internal disk without mounting its filesystems read-write;
-- confirm no restore, repartition, filesystem repair, or writable automount ran;
-- leave the Kingston device detached unless a later check specifically requires
-  it; and
-- return to Debian without writing the internal disk or EFI variables.
+- verify the delivered generation identity;
+- identify the internal disk without mounting it read-write;
+- confirm that no restore, partitioning, formatting, filesystem repair, or
+  writable automount ran; and
+- return to the installed Debian system without writing the disk or EFI
+  variables.
 
-### Gate 1C: recovery-path rehearsal
+### Gate 1D: recovery rehearsal
 
-- network boot the same pinned rescue generation;
-- confirm the private recovery archive is reachable only through the intended
+- network boot the same pinned inspection or rescue generation;
+- prove that the ReaR environment remains interactive by default;
+- verify that the private backup source is reachable only through the intended
   restricted path;
 - verify the archive digest and complete archive readability;
-- confirm the expected root and EFI System Partition members are present;
-- do not start a restore;
-- do not mount the internal root filesystem read-write; and
-- return to Debian without changing either the target disk or backup source.
+- do not start automatic or interactive recovery;
+- do not mount the A720 root filesystem read-write; and
+- return without changing the target disk or backup source.
 
-### Gate 2: network-booted offline storage repair
+### Gate 2: clean encrypted Debian installation
 
-- boot the pinned repair generation rather than an unversioned latest image;
-- verify the internal disk by stable identity before issuing any changing
-  command;
-- keep the EFI System Partition and protected backup media untouched;
-- run a forced ext4 check while the root filesystem is unmounted;
-- calculate the authoritative minimum ext4 size after the successful check;
-- choose and record a target size with a deliberate safety margin;
-- shrink the filesystem before reducing the partition boundary;
-- remove the obsolete small swap partition and create one 20 GiB Linux swap
-  partition in the intended free space; and
+- stage and pin the chosen installer generation;
+- verify the A720 internal disk by stable identity;
+- physically disconnect the Kingston backup device;
+- erase and repartition only the A720 internal disk;
+- create the EFI System Partition and the chosen LUKS2 storage layout;
+- create encrypted root storage and a dedicated 20 GiB swap area;
+- install a minimal Debian base and stock signed fallback path;
+- do not restore machine-specific customization yet; and
 - stop and preserve logs on any discrepancy rather than improvising.
 
-### Gate 3: Debian repair and hibernation
+### Gate 3: encrypted-base validation
 
-- boot through the stock Debian fallback;
-- update `fstab` and initramfs resume configuration to the new swap UUID;
-- activate and verify the new swap partition;
-- remove the swapfile only after the partition is active and tested;
-- rebuild all retained initramfs images;
-- verify the running kernel's resume target; and
-- complete repeated controlled hibernate-resume tests with Secure Boot disabled.
+- complete repeated cold boots through the stock Debian fallback;
+- verify the intended authenticated early userspace and manual unlock path;
+- verify encrypted root and swap activation;
+- rebuild and inspect retained initramfs or UKI artifacts as appropriate;
+- prove that the stock fallback remains bootable; and
+- do not introduce Prettyboot, the custom kernel, or platform extensions until
+  the minimal base is stable.
 
-### Gate 4: custom kernel policy
+### Gate 4: layered platform restoration
 
-- build a Debian-derived kernel with automatic EFI lockdown disabled;
-- retain hibernation, module versioning, and mandatory module signatures;
-- sign the kernel and out-of-tree modules with trusted local keys;
-- install it alongside, not over, the stock Debian kernels; and
-- test boot, required module loading, and repeated hibernation while Secure Boot
-  remains disabled.
+Restore and test one layer at a time:
 
-### Gate 5: integrated Secure Boot certification
+- A720 WMI and bezel support;
+- audio and volume bridge behavior;
+- graphics and desktop configuration;
+- Plymouth and shutdown transitions;
+- machine-specific services and permissions; and
+- remaining documented platform fixes.
 
-With Secure Boot enabled and Darkstar selected through `BootNext`:
+One major variable changes per physical boot test.
 
-- confirm the firmware accepted the signed loader and kernel chain;
-- confirm the intended custom kernel loaded;
-- confirm lockdown is deliberately `none` under that kernel;
-- confirm unsigned modules are rejected and required signed modules load;
-- confirm prettyboot appeared;
-- confirm hibernation is offered;
-- hibernate and resume successfully more than once;
-- cold boot again;
-- verify the stock Debian path still boots with its normal lockdown policy; and
-- only then consider changing the permanent boot order.
+### Gate 5: Prettyboot and signed boot chain
 
-Network boot remains a recovery and maintenance path. It does not become the
-normal permanent boot path merely because the repair succeeds.
+- rebuild Prettyboot from clean source;
+- verify inherited and project SBAT rows;
+- sign and verify the final EFI image;
+- stage it without overwriting the stock Debian fallback;
+- test it first through a one-shot boot mechanism;
+- confirm the intended loader and kernel path; and
+- promote it only after repeated cold-boot success.
+
+### Gate 6: signed hibernation path
+
+- build the narrowly modified Debian-derived kernel or UKI;
+- retain mandatory module signatures and the chosen lockdown boundary;
+- sign the kernel, early userspace, and required out-of-tree modules;
+- install the custom path beside the stock fallback;
+- verify encrypted swap resume configuration; and
+- complete repeated controlled hibernate-resume tests before enabling the final
+  Secure Boot policy.
+
+### Gate 7: integrated certification
+
+One complete physical test must demonstrate:
+
+- Secure Boot enabled;
+- the intended signed Prettyboot path visibly running;
+- authenticated kernel and early userspace;
+- encrypted root and swap unlocked through the intended path;
+- required signed A720 platform modules loading;
+- healthy desktop, graphics, audio, bezel controls, and shutdown transition;
+- hibernation powering the machine fully off;
+- resume restoring the original kernel boot ID and user session; and
+- the stock Debian boot path and recovery environment remaining available.
 
 ## Failure policy
 
-A failure at any gate is diagnostic information, not permission to weaken the
-boot server, expose the recovery archive, improvise with the ESP, or attach the
-Kingston device blindly. Restore the last proven server generation, preserve
-logs, and change one variable per test.
+A failed gate is diagnostic information, not permission to weaken the Acer,
+expose recovery data, improvise with the A720 disk, or attach the Kingston device
+blindly. Restore the last proven boot generation, preserve logs, and change one
+variable per test.
 
-If firmware network boot is unreliable, retain the network artifacts and return
-to planning. Do not compensate by converting the protected Kingston backup
-device into experimental boot media.
+If firmware network boot is unreliable, retain the staged artifacts and return
+to planning. Do not compensate by turning the protected Kingston backup device
+into experimental boot media.
